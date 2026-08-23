@@ -119,6 +119,11 @@ button { color: inherit; }
 .finding-panel label { display: grid; gap: 6px; font-size: 10px; font-weight: 700; }
 .finding-panel textarea { width: 100%; min-height: 68px; resize: vertical; border: 1px solid #cad9d6; border-radius: 9px; padding: 9px 11px; outline: none; background: white; line-height: 1.55; }
 .finding-panel textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(11,107,95,.09); }
+.item-confirm-row { display: flex; align-items: center; justify-content: flex-end; gap: 14px; padding: 12px 18px 15px; border-top: 1px solid #edf2f1; background: white; }
+.item-confirm-row span { margin-right: auto; color: var(--muted); font-size: 9px; }
+.item-confirm-row .button { min-width: 190px; }
+.item-confirm-row .button:disabled { cursor: not-allowed; opacity: .46; transform: none; }
+.check-item.confirmed { box-shadow: inset 4px 0 0 var(--comply), 0 10px 30px rgba(42,43,46,.06); }
 .attachment-row { margin-top: 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .attach-button { border: 1px dashed #9abcb6; background: #f0f8f6; color: var(--primary); border-radius: 9px; padding: 7px 10px; font-size: 9px; font-weight: 700; cursor: pointer; }
 .attach-button input { display: none; }
@@ -270,6 +275,65 @@ button { color: inherit; }
 .defect-empty p { max-width: 520px; margin: 0 auto 18px; font-size: 10px; }
 .empty-icon { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; margin: auto; color: white; background: var(--comply); font-size: 24px; }
 
+.admin-view { max-width: 1080px; }
+.admin-login-card { max-width: 470px; margin: 50px auto; padding: 36px; border-radius: 26px; background: white; text-align: center; box-shadow: var(--shadow); }
+.admin-lock { width: 64px; height: 64px; margin: 0 auto 16px; border-radius: 50%; display: grid; place-items: center; color: white; background: #2b2c30; font-size: 24px; }
+.admin-login-card h2 { margin: 7px 0 7px; font-size: 25px; }
+.admin-login-card > p { margin: 0 auto 22px; color: var(--muted); font-size: 11px; line-height: 1.65; }
+.admin-login-card form { display: grid; gap: 13px; text-align: left; }
+.admin-login-card form .button { width: 100%; }
+.admin-scope-note { display: block; margin-top: 16px; color: var(--muted); font-size: 8px; }
+.admin-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.admin-heading h2 { margin: 5px 0 4px; font-size: 29px; }
+.admin-heading p { margin: 0; color: var(--muted); font-size: 10px; }
+.admin-metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 17px; }
+.admin-metrics article { min-height: 96px; padding: 17px; border-radius: 18px; background: white; box-shadow: 0 9px 25px rgba(42,43,46,.05); border-top: 3px solid var(--primary); }
+.admin-metrics article:nth-child(2) { border-color: var(--brand-blue, #003d9e); }
+.admin-metrics article:nth-child(3) { border-color: var(--brand-green, #00b189); }
+.admin-metrics article:nth-child(4) { border-color: var(--brand-yellow, #f0bd00); }
+.admin-metrics article:nth-child(5) { border-color: var(--brand-pink, #e31c75); }
+.admin-metrics span, .admin-metrics strong { display: block; }
+.admin-metrics span { color: var(--muted); font-size: 9px; }
+.admin-metrics strong { margin-top: 9px; font-size: 22px; }
+.admin-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 13px; padding: 18px 20px; border-radius: 20px; color: white; background: #2b2c30; }
+.admin-toolbar h3, .admin-toolbar p { margin: 0; }
+.admin-toolbar h3 { font-size: 16px; }
+.admin-toolbar p { margin-top: 3px; color: #c9c9c6; font-size: 9px; }
+.admin-toolbar > div:last-child { display: flex; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
+.admin-toolbar .button.secondary { color: white; background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.25); }
+.admin-master-card { margin-bottom: 14px; padding: 22px; border-radius: 22px; background: white; box-shadow: 0 10px 28px rgba(42,43,46,.06); }
+.admin-master-card .card-heading p { margin: 3px 0 0; color: var(--muted); font-size: 9px; }
+.admin-master-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 11px; }
+.admin-master-grid > section { min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 16px; background: #fafaf8; }
+.admin-master-grid header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.admin-master-grid h4 { margin: 0; font-size: 11px; }
+.admin-master-grid header button { border: 0; background: none; color: var(--primary); font-size: 9px; font-weight: 700; cursor: pointer; }
+.admin-master-grid section > div { display: grid; gap: 7px; }
+.admin-master-grid label { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
+.admin-master-grid input { min-width: 0; width: 100%; border: 1px solid #d9d8d4; border-radius: 10px; padding: 8px 9px; background: white; color: var(--ink); font-size: 9px; outline: 0; }
+.admin-master-grid input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(219,36,28,.08); }
+.admin-section-list { display: grid; gap: 13px; }
+.admin-section { overflow: hidden; border-radius: 21px; background: white; box-shadow: 0 10px 28px rgba(42,43,46,.06); }
+.admin-section > header { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 15px; padding: 17px 19px; border-bottom: 1px solid var(--line); background: #fafaf8; }
+.admin-section > header .field input { font-weight: 700; }
+.admin-section > header > div { display: flex; align-items: center; gap: 9px; }
+.admin-section > header b { color: var(--muted); font-size: 9px; }
+.admin-question-list { display: grid; }
+.admin-question { display: grid; grid-template-columns: 48px 1fr auto; align-items: start; gap: 10px; padding: 12px 18px; border-bottom: 1px solid #efeeeb; }
+.admin-question textarea { width: 100%; min-height: 66px; resize: vertical; border: 1px solid #d9d8d4; border-radius: 12px; padding: 10px 12px; color: var(--ink); background: #fdfdfc; line-height: 1.55; outline: 0; }
+.admin-question textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(219,36,28,.09); }
+.admin-delete-button { border: 0; background: #fff0ee; color: var(--primary-dark); border-radius: 999px; padding: 7px 10px; font-size: 8px; font-weight: 700; cursor: pointer; }
+.admin-delete-button:hover { background: #f9d7d4; }
+.admin-add-question { width: 100%; border: 0; background: #fafaf8; color: var(--primary); padding: 12px; cursor: pointer; font-size: 9px; font-weight: 700; }
+.admin-add-question:hover { background: var(--primary-soft); }
+.admin-data-card { margin-top: 17px; padding: 22px; border-radius: 22px; background: white; box-shadow: 0 10px 28px rgba(42,43,46,.06); }
+.admin-audit-list { display: grid; gap: 7px; }
+.admin-audit-list article { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 14px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 14px; background: #fafaf8; }
+.admin-audit-list b, .admin-audit-list span, .admin-audit-list strong { display: block; }
+.admin-audit-list b { font-size: 10px; }
+.admin-audit-list span { margin-top: 2px; color: var(--muted); font-size: 8px; }
+.admin-audit-list strong { text-align: right; font-size: 11px; }
+
 @keyframes pulse { 50% { opacity: .4; } }
 
 @media (max-width: 1120px) {
@@ -310,6 +374,19 @@ button { color: inherit; }
   .rating-group { grid-template-columns: 1fr 1fr; }
   .rating-button { padding: 9px 5px; }
   .finding-panel { padding: 13px; }
+  .item-confirm-row { align-items: stretch; flex-direction: column; padding: 12px 13px 14px; }
+  .item-confirm-row .button { width: 100%; min-width: 0; }
+  .admin-heading { align-items: flex-start; flex-direction: column; }
+  .admin-metrics { grid-template-columns: 1fr 1fr; }
+  .admin-master-grid { grid-template-columns: 1fr; }
+  .admin-toolbar { align-items: stretch; flex-direction: column; }
+  .admin-toolbar > div:last-child { justify-content: flex-start; }
+  .admin-section > header { grid-template-columns: 1fr; }
+  .admin-section > header > div { justify-content: space-between; }
+  .admin-question { grid-template-columns: 38px 1fr; }
+  .admin-question .admin-delete-button { grid-column: 2; justify-self: end; }
+  .admin-audit-list article { grid-template-columns: 1fr auto; }
+  .admin-audit-list article .admin-delete-button { grid-column: 1 / -1; justify-self: end; }
   .mobile-footer { left: 0; padding: 9px 15px; }
   .export-grid { grid-template-columns: 1fr; }
   .export-option { display: grid; grid-template-columns: 50px 1fr; align-items: center; }

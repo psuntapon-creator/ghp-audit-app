@@ -1,8 +1,16 @@
 (() => {
   "use strict";
 
-  const sections = window.GHP_SECTIONS || [];
-  const allItems = sections.flatMap((section) => section.items.map((item) => ({ ...item, sectionId: section.id })));
+  const DEFAULT_SECTIONS = JSON.parse(JSON.stringify(window.GHP_SECTIONS || []));
+  const DEFAULT_MASTER_DATA = {
+    sites: ["โรงงานบางพลี", "โรงงานเทพารักษ์", "KCG Logistics Park", "IDG บางนา"],
+    departments: ["PD4"],
+    areas: ["Dairy filling"],
+  };
+  const MASTER_LABELS = { sites: "Site / สถานที่ตั้ง", departments: "แผนก", areas: "พื้นที่ตรวจ" };
+  let sections = JSON.parse(JSON.stringify(DEFAULT_SECTIONS));
+  let masterData = JSON.parse(JSON.stringify(DEFAULT_MASTER_DATA));
+  let allItems = [];
   const PASS_THRESHOLD = 87;
   const PROFILES = {
     pd: { label: "Checklist PD", comply: 2, observe: 1, minor: 0, major: -1 },
@@ -17,6 +25,9 @@
   };
   const DB_NAME = "ghp-audit-monitoring";
   const STORE_NAME = "audits";
+  const SETTINGS_STORE = "settings";
+  const ADMIN_SALT = "ghp-admin-v1:";
+  const ADMIN_HASH = "9df7e6c2a39fe0f381a066e9af7b6dfec0509e1ddbe10ad14a39df8e8eb0645f";
 
   const els = {};
   let db;
@@ -25,11 +36,22 @@
   let searchTerm = "";
   let findingsOnly = false;
   let saveTimer;
+  let checklistSaveTimer;
   let toastTimer;
+  let isAdmin = sessionStorage.getItem("ghp-admin-session") === "active";
+
+  function rebuildItems() {
+    allItems = sections.flatMap((section) => section.items.map((item) => ({ ...item, sectionId: section.id })));
+  }
+  rebuildItems();
 
   function $(id) { return document.getElementById(id); }
   function escapeHtml(value = "") {
     return String(value).replace(/[&<>"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[char]);
+  }
+  function selectOptions(values, selected, placeholder) {
+    const unique = [...new Set([...(values || []), ...(selected && !(values || []).includes(selected) ? [selected] : [])])];
+    return `<option value="">${escapeHtml(placeholder)}</option>${unique.map((value) => `<option value="${escapeHtml(value)}" ${value === selected ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}`;
   }
   function uid() {
     return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -64,6 +86,7 @@
         targetDate: "",
         actionStatus: "open",
         closurePhotos: [],
+        confirmed: false,
       };
     });
     const now = new Date().toISOString();
@@ -75,6 +98,7 @@
       scoringProfile: "pd",
       meta: {
         title: "การตรวจประเมิน GHP เขตพื้นที่การผลิต",
+        site: "",
         department: "PD4",
         area: "Dairy filling",
         auditDate: today(),
@@ -88,13 +112,14 @@
 
   function openDatabase() {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, 1);
+      const request = indexedDB.open(DB_NAME, 2);
       request.onupgradeneeded = () => {
         const database = request.result;
         if (!database.objectStoreNames.contains(STORE_NAME)) {
           const store = database.createObjectStore(STORE_NAME, { keyPath: "id" });
           store.createIndex("updatedAt", "updatedAt");
         }
+        if (!database.objectStoreNames.contains(SETTINGS_STORE)) database.createObjectStore(SETTINGS_STORE, { keyPath: "key" });
       };
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
@@ -108,6 +133,43 @@
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
+  }
+  function settingsRequest(mode, operation) {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(SETTINGS_STORE, mode);
+      const store = tx.objectStore(SETTINGS_STORE);
+      const request = operation(store);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+  async function loadChecklistSettings() {
+    const saved = await settingsRequest("readonly", (store) => store.get("checklist"));
+    if (Array.isArray(saved?.sections) && saved.sections.length) sections = saved.sections;
+    if (saved?.masterData) {
+      Object.keys(DEFAULT_MASTER_DATA).forEach((key) => {
+        if (Array.isArray(saved.masterData[key]) && saved.masterData[key].length) masterData[key] = saved.masterData[key];
+      });
+    }
+    rebuildItems();
+  }
+  async function saveChecklistSettings() {
+    await settingsRequest("readwrite", (store) => store.put({ key: "checklist", sections, masterData, updatedAt: new Date().toISOString() }));
+  }
+  function scheduleChecklistSave() {
+    els.saveStatus.classList.add("saving");
+    els.saveStatus.lastChild.textContent = "กำลังบันทึก";
+    clearTimeout(checklistSaveTimer);
+    checklistSaveTimer = setTimeout(async () => {
+      try {
+        await saveChecklistSettings();
+        els.saveStatus.classList.remove("saving");
+        els.saveStatus.lastChild.textContent = "บันทึกแล้ว";
+      } catch (error) {
+        console.error(error);
+        showToast("บันทึกการตั้งค่าไม่สำเร็จ");
+      }
+    }, 450);
   }
   function saveNow() {
     audit.updatedAt = new Date().toISOString();
@@ -147,6 +209,7 @@
     if (!("targetDate" in response)) response.targetDate = "";
     if (!("actionStatus" in response)) response.actionStatus = "open";
     if (!Array.isArray(response.closurePhotos)) response.closurePhotos = [];
+    if (!("confirmed" in response)) response.confirmed = false;
     return response;
   }
   function profile() { return PROFILES[audit.scoringProfile] || PROFILES.pd; }
@@ -201,13 +264,14 @@
 
   function renderNav() {
     const metaActive = currentStep === "meta";
-    const metaComplete = ["department", "area", "auditDate", "auditor"].every((key) => audit.meta[key]);
+    const metaComplete = ["site", "department", "area", "auditDate", "auditor"].every((key) => audit.meta[key]);
     const findings = getFindings();
     const openFindings = findings.filter(({ response }) => response.actionStatus !== "closed").length;
     const items = [
       `<button class="nav-item nav-main ${currentStep === "dashboard" ? "active" : ""}" data-step="dashboard" data-short="ภาพรวม"><span class="nav-number">⌂</span><span class="nav-label">Dashboard ภาพรวม</span><span class="nav-progress">ดูผล</span></button>`,
       `<button class="nav-item nav-main ${metaActive ? "active" : ""} ${metaComplete ? "complete" : ""}" data-step="meta" data-short="กรอกแบบตรวจ"><span class="nav-number">✎</span><span class="nav-label">กรอกแบบตรวจ</span><span class="nav-progress">${metaComplete ? "พร้อม" : "เริ่มกรอก"}</span></button>`,
       `<button class="nav-item nav-main ${currentStep === "defects" ? "active" : ""} ${findings.length && !openFindings ? "complete" : ""}" data-step="defects" data-short="ตอบข้อบกพร่อง"><span class="nav-number">!</span><span class="nav-label">ตอบกลับข้อบกพร่อง</span><span class="nav-progress">${openFindings ? `${openFindings} เปิด` : findings.length ? "ปิดครบ" : "ยังไม่มี"}</span></button>`,
+      `<button class="nav-item nav-main admin-nav ${currentStep === "admin" ? "active" : ""}" data-step="admin" data-short="Admin"><span class="nav-number">${isAdmin ? "⚙" : "▣"}</span><span class="nav-label">ผู้ดูแลระบบ</span><span class="nav-progress">${isAdmin ? "เข้าใช้งาน" : "ล็อก"}</span></button>`,
     ];
     sections.forEach((section) => {
       const stats = getStats(section.items);
@@ -243,7 +307,7 @@
         <div>
           <span class="eyebrow">KCG Corporation · Quality System</span>
           <h2>Dashboard ภาพรวมการตรวจ GHP</h2>
-          <p>${escapeHtml(audit.meta.department || "ยังไม่ระบุแผนก")} · ${escapeHtml(audit.meta.area || "ยังไม่ระบุพื้นที่")} · ${escapeHtml(formatDate(audit.meta.auditDate))}</p>
+          <p>${escapeHtml(audit.meta.site || "ยังไม่ระบุ Site")} · ${escapeHtml(audit.meta.department || "ยังไม่ระบุแผนก")} · ${escapeHtml(audit.meta.area || "ยังไม่ระบุพื้นที่")} · ${escapeHtml(formatDate(audit.meta.auditDate))}</p>
         </div>
         <div class="dashboard-hero-actions">
           <button type="button" class="button primary" data-dashboard-action="audit">กรอกแบบตรวจ</button>
@@ -276,7 +340,7 @@
       $("dashboardRecent").innerHTML = recent.length ? recent.map((entry) => {
         const entrySummary = entryStats(entry);
         const entryFindings = entrySummary.counts.major + entrySummary.counts.minor + entrySummary.counts.observe;
-        return `<button type="button" class="recent-audit ${entry.id === audit.id ? "active" : ""}" data-audit-id="${escapeHtml(entry.id)}"><span class="recent-date">${escapeHtml(formatDate(entry.meta?.auditDate))}</span><span><b>${escapeHtml(entry.meta?.area || "ยังไม่ระบุพื้นที่")}</b><small>${escapeHtml(entry.meta?.department || "—")} · ${entrySummary.answered}/${allItems.length} ข้อ</small></span><span class="recent-result"><b>${displayPercent(entrySummary.percent)}${entrySummary.percent === null ? "" : "%"}</b><small>${entryFindings} ข้อพบ</small></span></button>`;
+        return `<button type="button" class="recent-audit ${entry.id === audit.id ? "active" : ""}" data-audit-id="${escapeHtml(entry.id)}"><span class="recent-date">${escapeHtml(formatDate(entry.meta?.auditDate))}</span><span><b>${escapeHtml(entry.meta?.area || "ยังไม่ระบุพื้นที่")}</b><small>${escapeHtml(entry.meta?.site || "ยังไม่ระบุ Site")} · ${escapeHtml(entry.meta?.department || "—")} · ${entrySummary.answered}/${allItems.length} ข้อ</small></span><span class="recent-result"><b>${displayPercent(entrySummary.percent)}${entrySummary.percent === null ? "" : "%"}</b><small>${entryFindings} ข้อพบ</small></span></button>`;
       }).join("") : `<div class="dashboard-empty compact">ยังไม่มีแบบตรวจ</div>`;
     } catch (error) {
       console.error(error);
@@ -317,6 +381,80 @@
       }).join("")}</div>` : `<div class="dashboard-empty defect-empty"><div class="empty-icon">✓</div><h3>ยังไม่มีข้อบกพร่องที่ต้องตอบกลับ</h3><p>เมื่อเลือกระดับ Observe, Minor หรือ Major ในแบบตรวจ รายการจะแสดงที่หน้านี้อัตโนมัติ</p><button type="button" class="button primary" data-defect-action="audit">ไปกรอกแบบตรวจ</button></div>`}`;
   }
 
+  async function verifyAdminPassword(password) {
+    const bytes = new TextEncoder().encode(`${ADMIN_SALT}${password}`);
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    const hex = [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
+    return hex === ADMIN_HASH;
+  }
+
+  function nextItemId(section) {
+    let sequence = 1;
+    const used = new Set(allItems.map((item) => item.id));
+    while (used.has(`${section.id}.${sequence}`)) sequence += 1;
+    return `${section.id}.${sequence}`;
+  }
+
+  async function renderAdmin() {
+    if (!isAdmin) {
+      els.adminView.innerHTML = `<section class="admin-login-card">
+        <div class="admin-lock">▣</div><span class="eyebrow">Restricted area</span><h2>เข้าสู่ระบบผู้ดูแล</h2>
+        <p>ผู้ตรวจทั่วไปไม่ต้อง Login ส่วนเมนูนี้ใช้สำหรับจัดการคำถามและข้อมูลระบบบนอุปกรณ์นี้</p>
+        <form data-admin-login><label class="field"><span>รหัสผู้ดูแลระบบ</span><input type="password" name="adminPassword" autocomplete="current-password" required placeholder="กรอกรหัส Admin" /></label><button class="button primary" type="submit">เข้าสู่ระบบ Admin</button></form>
+        <small class="admin-scope-note">Local Admin · ข้อมูลและการตั้งค่ามีผลเฉพาะเบราว์เซอร์นี้</small>
+      </section>`;
+      return;
+    }
+    const audits = await listAudits();
+    const findingsTotal = audits.reduce((sum, entry) => sum + allItems.filter((item) => FINDING_RULES[entry.responses?.[item.id]?.rating]).length, 0);
+    let storageText = "กำลังคำนวณ";
+    try {
+      const estimate = await navigator.storage?.estimate?.();
+      if (estimate?.usage != null) storageText = `${(estimate.usage / 1024 / 1024).toFixed(1)} MB`;
+    } catch (error) { console.error(error); }
+    if (currentStep !== "admin") return;
+    els.adminView.innerHTML = `<div class="admin-heading"><div><span class="eyebrow">Administration</span><h2>ระบบหลังบ้าน</h2><p>จัดการ Checklist และข้อมูลแบบตรวจที่บันทึกบนอุปกรณ์นี้</p></div><button type="button" class="button secondary" data-admin-action="logout">ออกจากระบบ Admin</button></div>
+      <section class="admin-metrics"><article><span>หมวดตรวจ</span><strong>${sections.length}</strong></article><article><span>คำถามทั้งหมด</span><strong>${allItems.length}</strong></article><article><span>แบบตรวจ</span><strong>${audits.length}</strong></article><article><span>ข้อบกพร่อง</span><strong>${findingsTotal}</strong></article><article><span>พื้นที่จัดเก็บ</span><strong>${storageText}</strong></article></section>
+      <section class="admin-toolbar"><div><h3>จัดการคำถาม</h3><p>แก้ข้อความ เพิ่ม หรือลบคำถามได้ทันที</p></div><div><button type="button" class="button secondary" data-admin-action="export">สำรองข้อมูลระบบ</button><button type="button" class="button secondary" data-admin-action="reset">คืนคำถามเริ่มต้น</button><button type="button" class="button primary" data-admin-action="add-section">+ เพิ่มหมวด</button></div></section>
+      <section class="admin-master-card"><div class="card-heading"><div><span class="eyebrow">Master data</span><h3>ตัวเลือกข้อมูลการตรวจประเมิน</h3><p>รายการเหล่านี้จะแสดงเป็น Dropdown ในหน้ากรอกข้อมูลการตรวจ</p></div></div><div class="admin-master-grid">${Object.keys(MASTER_LABELS).map((key) => `<section data-master-key="${key}"><header><h4>${MASTER_LABELS[key]}</h4><button type="button" data-admin-action="add-master">+ เพิ่ม</button></header><div>${masterData[key].map((value, index) => `<label data-master-index="${index}"><input data-master-value value="${escapeHtml(value)}" aria-label="${MASTER_LABELS[key]} ${index + 1}" /><button type="button" class="admin-delete-button" data-admin-action="delete-master">ลบ</button></label>`).join("")}</div></section>`).join("")}</div></section>
+      <div class="admin-section-list">${sections.map((section, sectionIndex) => `<section class="admin-section" data-admin-section="${sectionIndex}"><header><label class="field"><span>ชื่อหมวด ${section.id}</span><input data-section-title value="${escapeHtml(section.title)}" /></label><div><b>${section.items.length} คำถาม</b><button type="button" class="admin-delete-button" data-admin-action="delete-section">ลบหมวด</button></div></header><div class="admin-question-list">${section.items.map((item, itemIndex) => `<article class="admin-question" data-admin-item="${itemIndex}"><span class="item-code">${escapeHtml(item.id)}</span><textarea data-question-text aria-label="คำถาม ${escapeHtml(item.id)}">${escapeHtml(item.text)}</textarea><button type="button" class="admin-delete-button" data-admin-action="delete-question">ลบ</button></article>`).join("")}</div><button type="button" class="admin-add-question" data-admin-action="add-question">+ เพิ่มคำถามในหมวดนี้</button></section>`).join("")}</div>
+      <section class="admin-data-card"><div class="card-heading"><div><span class="eyebrow">Audit data</span><h3>ข้อมูลแบบตรวจบนอุปกรณ์</h3></div></div><div class="admin-audit-list">${audits.length ? audits.map((entry) => { const stats = entryStats(entry); return `<article data-admin-audit="${escapeHtml(entry.id)}"><div><b>${escapeHtml(entry.meta?.area || "ยังไม่ระบุพื้นที่")}</b><span>${escapeHtml(entry.meta?.site || "ยังไม่ระบุ Site")} · ${escapeHtml(entry.meta?.department || "—")} · ${escapeHtml(formatDate(entry.meta?.auditDate))}</span></div><div><strong>${stats.answered}/${allItems.length}</strong><span>${entry.status === "complete" ? "เสร็จสิ้น" : "ฉบับร่าง"}</span></div><button type="button" class="admin-delete-button" data-admin-action="delete-audit">ลบข้อมูล</button></article>`; }).join("") : `<div class="dashboard-empty compact">ยังไม่มีข้อมูลแบบตรวจ</div>`}</div></section>`;
+  }
+
+  async function confirmAndAdvance(itemId) {
+    const response = responseFor(itemId);
+    if (!response.rating) {
+      showToast("กรุณาเลือกผลการตรวจก่อนยืนยัน");
+      return;
+    }
+    response.confirmed = true;
+    await saveNow();
+    const currentIndex = allItems.findIndex((item) => item.id === itemId);
+    const nextItem = allItems[currentIndex + 1];
+    if (!nextItem) {
+      navigate("dashboard");
+      showToast("ยืนยันครบถึงข้อสุดท้ายแล้ว");
+      return;
+    }
+    if (nextItem.sectionId !== currentStep) {
+      navigate(nextItem.sectionId);
+      showToast(`ยืนยันข้อ ${itemId} แล้ว · ไปหมวดถัดไป`);
+      return;
+    }
+    searchTerm = "";
+    findingsOnly = false;
+    els.itemSearch.value = "";
+    els.findingFilter.checked = false;
+    renderChecklist();
+    requestAnimationFrame(() => {
+      const nextCard = els.checklist.querySelector(`[data-item-id="${CSS.escape(nextItem.id)}"]`);
+      nextCard?.scrollIntoView({ behavior: "smooth", block: "center" });
+      nextCard?.querySelector("[data-rating]")?.focus({ preventScroll: true });
+    });
+    updateSummary();
+    showToast(`ยืนยันข้อ ${itemId} แล้ว · ไปข้อ ${nextItem.id}`);
+  }
+
   function renderMeta() {
     els.metaView.innerHTML = `
       <div class="welcome-card">
@@ -328,15 +466,16 @@
         <h3>ข้อมูลการตรวจประเมิน</h3>
         <div class="form-grid">
           <label class="field full"><span>ชื่อแบบตรวจ</span><input data-meta="title" value="${escapeHtml(audit.meta.title)}" /></label>
-          <label class="field"><span>แผนก</span><input data-meta="department" value="${escapeHtml(audit.meta.department)}" placeholder="เช่น PD4" /></label>
-          <label class="field"><span>พื้นที่ตรวจ</span><input data-meta="area" value="${escapeHtml(audit.meta.area)}" placeholder="เช่น Dairy filling" /></label>
+          <label class="field"><span>Site / สถานที่ตั้ง</span><select data-meta="site">${selectOptions(masterData.sites, audit.meta.site || "", "เลือก Site")}</select></label>
+          <label class="field"><span>แผนก</span><select data-meta="department">${selectOptions(masterData.departments, audit.meta.department || "", "เลือกแผนก")}</select></label>
+          <label class="field"><span>พื้นที่ตรวจ</span><select data-meta="area">${selectOptions(masterData.areas, audit.meta.area || "", "เลือกพื้นที่")}</select></label>
           <label class="field"><span>ประจำเดือน</span><input type="month" data-meta="auditMonth" value="${escapeHtml(audit.meta.auditMonth)}" /></label>
           <label class="field"><span>วันที่ตรวจ</span><input type="date" data-meta="auditDate" value="${escapeHtml(audit.meta.auditDate)}" /></label>
           <label class="field"><span>Auditor / ผู้ตรวจ</span><input data-meta="auditor" value="${escapeHtml(audit.meta.auditor)}" placeholder="ชื่อผู้ตรวจ" /></label>
           <label class="field"><span>Auditee / ผู้รับการตรวจ</span><input data-meta="auditee" value="${escapeHtml(audit.meta.auditee)}" placeholder="ชื่อผู้รับการตรวจ" /></label>
         </div>
         <div class="form-footer">
-          <p>40 ข้อ · 6 หมวด · คะแนนเต็ม 80 · ผ่านเมื่อได้ตั้งแต่ ${PASS_THRESHOLD}%</p>
+          <p>${allItems.length} ข้อ · ${sections.length} หมวด · คะแนนเต็ม ${allItems.length * 2} · ผ่านเมื่อได้ตั้งแต่ ${PASS_THRESHOLD}%</p>
           <button class="button primary" id="startAuditButton" type="button">เริ่มทำแบบตรวจ →</button>
         </div>
       </div>`;
@@ -356,7 +495,7 @@
     const stats = getStats(section.items);
     els.sectionEyebrow.textContent = `หมวดที่ ${section.id} จาก ${sections.length}`;
     els.sectionTitle.textContent = section.title.replace(/^\d+\.\s*/, "");
-    els.sectionSubtitle.textContent = `${section.items.length} ข้อ · คะแนนเต็ม ${section.weight}`;
+    els.sectionSubtitle.textContent = `${section.items.length} ข้อ · คะแนนเต็ม ${section.items.length * 2}`;
     els.sectionScore.innerHTML = `<strong>${stats.score.toFixed(Number.isInteger(stats.score) ? 0 : 1)} / ${stats.maxScore}</strong><span>${stats.answered}/${stats.total} ข้อ · ${displayPercent(stats.percent)}%</span>`;
 
     const normalizedSearch = searchTerm.trim().toLocaleLowerCase("th");
@@ -371,7 +510,7 @@
       const response = responseFor(item.id);
       const isFinding = response.rating && response.rating !== "comply";
       const scoreProfile = profile();
-      return `<article class="check-item" data-item-id="${item.id}">
+      return `<article class="check-item ${response.confirmed ? "confirmed" : ""}" data-item-id="${item.id}">
         <div class="check-main">
           <span class="item-code">${item.id}</span>
           <div>
@@ -389,6 +528,10 @@
             <label class="attach-button">＋ แนบรูป<input type="file" accept="image/*" capture="environment" data-photo /></label>
             ${(response.photos || []).map((photo, index) => `<span class="photo-wrap"><img class="photo-thumb" src="${photo}" alt="รูปแนบข้อ ${item.id}" /><button type="button" class="photo-remove" data-photo-remove="${index}" aria-label="ลบรูป">×</button></span>`).join("")}
           </div>
+        </div>
+        <div class="item-confirm-row">
+          <span>${response.confirmed ? "ยืนยันคำตอบข้อนี้แล้ว" : response.rating ? "ตรวจสอบคำตอบแล้วกดยืนยัน" : "กรุณาเลือกผลการตรวจก่อน"}</span>
+          <button type="button" class="button ${response.confirmed ? "secondary" : "primary"}" data-confirm-item ${response.rating ? "" : "disabled"}>${response.confirmed ? "ยืนยันอีกครั้งและไปข้อต่อไป →" : "ยืนยันและไปข้อต่อไป →"}</button>
         </div>
       </article>`;
     }).join("");
@@ -420,6 +563,7 @@
     }
     if (currentStep === "dashboard") els.mobileNextButton.textContent = "กรอกแบบตรวจ";
     else if (currentStep === "defects") els.mobileNextButton.textContent = "กลับ Dashboard";
+    else if (currentStep === "admin") els.mobileNextButton.textContent = "กลับ Dashboard";
     else els.mobileNextButton.textContent = currentStep === "meta" ? "เริ่มตรวจ" : currentStep === sections.at(-1).id ? "สรุปผล" : "หมวดถัดไป";
   }
 
@@ -428,6 +572,7 @@
     if (currentStep === "dashboard") renderDashboard();
     else if (currentStep === "meta") renderMeta();
     else if (currentStep === "defects") renderDefects();
+    else if (currentStep === "admin") renderAdmin();
     else if (checklist) renderChecklist();
     updateSummary();
   }
@@ -440,7 +585,8 @@
     els.dashboardView.hidden = step !== "dashboard";
     els.metaView.hidden = step !== "meta";
     els.defectsView.hidden = step !== "defects";
-    els.checklistView.hidden = ["dashboard", "meta", "defects"].includes(step);
+    els.adminView.hidden = step !== "admin";
+    els.checklistView.hidden = ["dashboard", "meta", "defects", "admin"].includes(step);
     updateAll();
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -484,7 +630,7 @@
   function exportCsv() {
     const rows = [
       ["KCG GHP Audit Report"],
-      ["แผนก", audit.meta.department, "พื้นที่", audit.meta.area],
+      ["Site", audit.meta.site || "", "แผนก", audit.meta.department, "พื้นที่", audit.meta.area],
       ["วันที่ตรวจ", audit.meta.auditDate, "Auditor", audit.meta.auditor, "Auditee", audit.meta.auditee],
       [],
       ["หมวด", "ข้อ", "สิ่งที่ต้องตรวจสอบ", "ผลการตรวจ", "คะแนน", "ข้อค้นพบ", "จำนวนรูปหลักฐาน", "ผู้รับผิดชอบ", "กำหนดเสร็จ", "สถานะแก้ไข", "การแก้ไขและป้องกัน", "จำนวนรูปหลังแก้ไข"],
@@ -515,7 +661,7 @@
         return `<section class="print-finding-group" data-rating="${findingProfile.rating}">
           <header><h3>${findingProfile.label} <span>${entries.length} ข้อ</span></h3><p>ต้องปรับปรุงแก้ไขให้แล้วเสร็จภายใน ${findingProfile.deadline}</p></header>
           ${entries.map(({ item, response, section }, entryIndex) => `<article class="print-finding-card">
-            <div class="print-finding-meta"><b>${entryIndex + 1}. Requirement ${escapeHtml(item.id)}</b><span>${escapeHtml(sectionShortTitle(section))} · ${escapeHtml(audit.meta.area || "ยังไม่ระบุพื้นที่")}</span></div>
+            <div class="print-finding-meta"><b>${entryIndex + 1}. Requirement ${escapeHtml(item.id)}</b><span>${escapeHtml(audit.meta.site || "ยังไม่ระบุ Site")} · ${escapeHtml(sectionShortTitle(section))} · ${escapeHtml(audit.meta.area || "ยังไม่ระบุพื้นที่")}</span></div>
             <div class="print-finding-description"><span>Description / Evidence</span><p>${escapeHtml(response.note || "ไม่ได้ระบุรายละเอียด")}</p></div>
             ${(response.photos || []).length ? `<h4 class="print-photo-label">รูปหลักฐานข้อบกพร่อง</h4><div class="print-photo-grid">${response.photos.map((photo, photoIndex) => `<figure><img src="${escapeHtml(photo)}" alt="รูปหลักฐานข้อ ${escapeHtml(item.id)} รูปที่ ${photoIndex + 1}" /><figcaption>รูปหลักฐาน ${photoIndex + 1}</figcaption></figure>`).join("")}</div>` : `<p class="print-no-photo">ไม่มีรูปหลักฐานแนบ</p>`}
             <div class="print-corrective">
@@ -532,6 +678,7 @@
     els.printReport.innerHTML = `
       <header class="print-header"><h1>KCG GHP Audit Report</h1><div>KCG Corporation Public Company Limited · Quality System Dept.</div></header>
       <div class="print-meta">
+        <div><span>Site</span><br><b>${escapeHtml(audit.meta.site || "—")}</b></div>
         <div><span>แผนก</span><br><b>${escapeHtml(audit.meta.department)}</b></div>
         <div><span>พื้นที่</span><br><b>${escapeHtml(audit.meta.area)}</b></div>
         <div><span>วันที่ตรวจ</span><br><b>${escapeHtml(formatDate(audit.meta.auditDate))}</b></div>
@@ -554,7 +701,7 @@
     const audits = await listAudits();
     els.historyList.innerHTML = audits.length ? audits.map((entry) => {
       const answered = allItems.filter((item) => entry.responses?.[item.id]?.rating).length;
-      return `<article class="history-item ${entry.id === audit.id ? "active" : ""}" data-history-id="${entry.id}"><div><h4>${escapeHtml(entry.meta?.area || "ยังไม่ระบุพื้นที่")} · ${escapeHtml(entry.meta?.department || "—")}</h4><p>${formatDate(entry.meta?.auditDate)} · ${answered}/${allItems.length} ข้อ · ${entry.status === "complete" ? "เสร็จสิ้น" : "ฉบับร่าง"}</p></div><div class="history-actions"><button type="button" data-history-open>เปิด</button><button type="button" data-history-delete>ลบ</button></div></article>`;
+      return `<article class="history-item ${entry.id === audit.id ? "active" : ""}" data-history-id="${entry.id}"><div><h4>${escapeHtml(entry.meta?.area || "ยังไม่ระบุพื้นที่")} · ${escapeHtml(entry.meta?.department || "—")}</h4><p>${escapeHtml(entry.meta?.site || "ยังไม่ระบุ Site")} · ${formatDate(entry.meta?.auditDate)} · ${answered}/${allItems.length} ข้อ · ${entry.status === "complete" ? "เสร็จสิ้น" : "ฉบับร่าง"}</p></div><div class="history-actions"><button type="button" data-history-open>เปิด</button><button type="button" data-history-delete>ลบ</button></div></article>`;
     }).join("") : `<div class="history-empty">ยังไม่มีแบบตรวจที่บันทึกไว้</div>`;
     els.historyDialog.showModal();
   }
@@ -601,15 +748,19 @@
     });
     els.itemSearch.addEventListener("input", () => { searchTerm = els.itemSearch.value; renderChecklist(); });
     els.findingFilter.addEventListener("change", () => { findingsOnly = els.findingFilter.checked; renderChecklist(); });
-    els.checklist.addEventListener("click", (event) => {
+    els.checklist.addEventListener("click", async (event) => {
       const itemElement = event.target.closest(".check-item");
       if (!itemElement) return;
       const itemId = itemElement.dataset.itemId;
       const ratingButton = event.target.closest("[data-rating]");
       const removeButton = event.target.closest("[data-photo-remove]");
-      if (ratingButton) {
+      const confirmButton = event.target.closest("[data-confirm-item]");
+      if (confirmButton) {
+        await confirmAndAdvance(itemId);
+      } else if (ratingButton) {
         const response = responseFor(itemId);
         response.rating = ratingButton.dataset.rating;
+        response.confirmed = false;
         if (FINDING_RULES[response.rating] && !response.targetDate) response.targetDate = suggestedTargetDate(response.rating);
         audit.status = "draft";
         scheduleSave();
@@ -684,6 +835,150 @@
         showToast("ไม่สามารถแนบรูปนี้ได้");
       }
     });
+    els.adminView.addEventListener("submit", async (event) => {
+      const form = event.target.closest("[data-admin-login]");
+      if (!form) return;
+      event.preventDefault();
+      const password = new FormData(form).get("adminPassword") || "";
+      if (!(await verifyAdminPassword(String(password)))) {
+        form.querySelector("input").select();
+        showToast("รหัสผู้ดูแลระบบไม่ถูกต้อง");
+        return;
+      }
+      isAdmin = true;
+      sessionStorage.setItem("ghp-admin-session", "active");
+      updateAll({ checklist: false });
+      showToast("เข้าสู่ระบบ Admin แล้ว");
+    });
+    els.adminView.addEventListener("input", (event) => {
+      if (!isAdmin) return;
+      const masterElement = event.target.closest("[data-master-key]");
+      if (masterElement && event.target.matches("[data-master-value]")) {
+        const key = masterElement.dataset.masterKey;
+        const index = Number(event.target.closest("[data-master-index]").dataset.masterIndex);
+        if (masterData[key]?.[index] != null) masterData[key][index] = event.target.value;
+        scheduleChecklistSave();
+        return;
+      }
+      const sectionElement = event.target.closest("[data-admin-section]");
+      if (!sectionElement) return;
+      const sectionIndex = Number(sectionElement.dataset.adminSection);
+      const section = sections[sectionIndex];
+      if (!section) return;
+      if (event.target.matches("[data-section-title]")) section.title = event.target.value;
+      if (event.target.matches("[data-question-text]")) {
+        const itemIndex = Number(event.target.closest("[data-admin-item]").dataset.adminItem);
+        if (section.items[itemIndex]) section.items[itemIndex].text = event.target.value;
+      }
+      rebuildItems();
+      scheduleChecklistSave();
+    });
+    els.adminView.addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-admin-action]");
+      if (!button || !isAdmin) return;
+      const action = button.dataset.adminAction;
+      if (action === "logout") {
+        isAdmin = false;
+        sessionStorage.removeItem("ghp-admin-session");
+        updateAll({ checklist: false });
+        showToast("ออกจากระบบ Admin แล้ว");
+        return;
+      }
+      if (action === "export") {
+        const audits = await listAudits();
+        const payload = { schemaVersion: 2, exportedAt: new Date().toISOString(), checklist: sections, masterData, audits };
+        downloadBlob(JSON.stringify(payload, null, 2), `KCG-GHP-System-Backup-${today()}.json`, "application/json;charset=utf-8");
+        showToast("ดาวน์โหลดข้อมูลระบบแล้ว");
+        return;
+      }
+      if (action === "reset") {
+        if (!confirm("คืนคำถามและตัวเลือกข้อมูลทั้งหมดเป็นค่าเริ่มต้นหรือไม่? ข้อมูลคำตอบเดิมจะยังคงอยู่")) return;
+        sections = JSON.parse(JSON.stringify(DEFAULT_SECTIONS));
+        masterData = JSON.parse(JSON.stringify(DEFAULT_MASTER_DATA));
+        rebuildItems();
+        await saveChecklistSettings();
+        updateAll({ checklist: false });
+        showToast("คืนคำถามเริ่มต้นแล้ว");
+        return;
+      }
+      if (action === "add-section") {
+        const numericIds = sections.map((section) => Number(section.id)).filter(Number.isFinite);
+        const id = String((numericIds.length ? Math.max(...numericIds) : 0) + 1);
+        sections.push({ id, title: `${id}. หมวดใหม่`, weight: 2, items: [{ id: `${id}.1`, text: "คำถามใหม่" }] });
+        rebuildItems();
+        await saveChecklistSettings();
+        updateAll({ checklist: false });
+        showToast(`เพิ่มหมวด ${id} แล้ว`);
+        return;
+      }
+      const masterElement = button.closest("[data-master-key]");
+      const masterKey = masterElement?.dataset.masterKey;
+      if (action === "add-master" && masterData[masterKey]) {
+        masterData[masterKey].push("รายการใหม่");
+        await saveChecklistSettings();
+        updateAll({ checklist: false });
+        showToast(`เพิ่มตัวเลือก ${MASTER_LABELS[masterKey]} แล้ว`);
+        return;
+      }
+      if (action === "delete-master" && masterData[masterKey]) {
+        const masterIndex = Number(button.closest("[data-master-index]")?.dataset.masterIndex);
+        const value = masterData[masterKey][masterIndex];
+        if (value == null || !confirm(`ลบตัวเลือก “${value}” หรือไม่?`)) return;
+        masterData[masterKey].splice(masterIndex, 1);
+        await saveChecklistSettings();
+        updateAll({ checklist: false });
+        showToast(`ลบตัวเลือก ${value} แล้ว`);
+        return;
+      }
+      const sectionElement = button.closest("[data-admin-section]");
+      const sectionIndex = Number(sectionElement?.dataset.adminSection);
+      const section = sections[sectionIndex];
+      if (action === "add-question" && section) {
+        const id = nextItemId(section);
+        section.items.push({ id, text: "คำถามใหม่" });
+        section.weight = section.items.length * 2;
+        rebuildItems();
+        responseFor(id);
+        await Promise.all([saveChecklistSettings(), saveNow()]);
+        updateAll({ checklist: false });
+        showToast(`เพิ่มคำถาม ${id} แล้ว`);
+        return;
+      }
+      if (action === "delete-question" && section) {
+        const itemIndex = Number(button.closest("[data-admin-item]")?.dataset.adminItem);
+        const item = section.items[itemIndex];
+        if (!item || !confirm(`ลบคำถาม ${item.id} ออกจาก Checklist หรือไม่?`)) return;
+        section.items.splice(itemIndex, 1);
+        section.weight = section.items.length * 2;
+        rebuildItems();
+        await saveChecklistSettings();
+        updateAll({ checklist: false });
+        showToast(`ลบคำถาม ${item.id} แล้ว`);
+        return;
+      }
+      if (action === "delete-section" && section) {
+        if (!confirm(`ลบหมวด ${section.id} และคำถามทั้งหมดในหมวดนี้หรือไม่?`)) return;
+        sections.splice(sectionIndex, 1);
+        rebuildItems();
+        await saveChecklistSettings();
+        updateAll({ checklist: false });
+        showToast(`ลบหมวด ${section.id} แล้ว`);
+        return;
+      }
+      if (action === "delete-audit") {
+        const auditElement = button.closest("[data-admin-audit]");
+        const auditId = auditElement?.dataset.adminAudit;
+        if (!auditId || !confirm("ลบข้อมูลแบบตรวจนี้ออกจากอุปกรณ์หรือไม่?")) return;
+        await dbRequest("readwrite", (store) => store.delete(auditId));
+        if (audit.id === auditId) {
+          const remaining = await listAudits();
+          audit = remaining[0] || createAudit();
+          if (!remaining.length) await saveNow();
+        }
+        updateAll({ checklist: false });
+        showToast("ลบข้อมูลแบบตรวจแล้ว");
+      }
+    });
     els.scoringButton.addEventListener("click", () => {
       els.scoringDialog.querySelector(`[value="${audit.scoringProfile}"]`).checked = true;
       els.scoringDialog.showModal();
@@ -712,6 +1007,7 @@
     els.mobileNextButton.addEventListener("click", () => {
       if (currentStep === "dashboard") navigate("meta");
       else if (currentStep === "defects") navigate("dashboard");
+      else if (currentStep === "admin") navigate("dashboard");
       else if (currentStep === "meta") navigate(sections[0].id);
       else {
         const index = sections.findIndex((section) => section.id === currentStep);
@@ -753,7 +1049,7 @@
     Object.assign(els, {
       homeButton: $("homeButton"), historyButton: $("historyButton"), saveStatus: $("saveStatus"),
       progressText: $("progressText"), progressBar: $("progressBar"), progressHint: $("progressHint"),
-      sectionNav: $("sectionNav"), scoringButton: $("scoringButton"), dashboardView: $("dashboardView"), metaView: $("metaView"), checklistView: $("checklistView"), defectsView: $("defectsView"),
+      sectionNav: $("sectionNav"), scoringButton: $("scoringButton"), dashboardView: $("dashboardView"), metaView: $("metaView"), checklistView: $("checklistView"), defectsView: $("defectsView"), adminView: $("adminView"),
       sectionEyebrow: $("sectionEyebrow"), sectionTitle: $("sectionTitle"), sectionSubtitle: $("sectionSubtitle"), sectionScore: $("sectionScore"),
       itemSearch: $("itemSearch"), findingFilter: $("findingFilter"), checklist: $("checklist"), emptyState: $("emptyState"),
       overallScore: $("overallScore"), resultBadge: $("resultBadge"), exportButton: $("exportButton"), completeButton: $("completeButton"),
@@ -762,6 +1058,7 @@
     });
     try {
       db = await openDatabase();
+      await loadChecklistSettings();
       const audits = await listAudits();
       audit = audits[0] || createAudit();
       if (!audits.length) await saveNow();
