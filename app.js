@@ -29,7 +29,7 @@
   const STORE_NAME = "audits";
   const SETTINGS_KEY = "ghp-checklist-settings-v1";
   const ADMIN_SALT = "ghp-admin-v1:";
-  const ADMIN_HASH = "9df7e6c2a39fe0f381a066e9af7b6dfec0509e1ddbe10ad14a39df8e8eb0645f";
+  const ADMIN_HASH = "632310defa63789305fed1b53d19186894a126dee092d4070e8d238b4023d728";
 
   const els = {};
   let db;
@@ -312,7 +312,6 @@
         <div>
           <span class="eyebrow">KCG Corporation · Quality System</span>
           <h2>Dashboard ภาพรวมการตรวจ GHP</h2>
-          <p>${escapeHtml(audit.meta.site || "ยังไม่ระบุ Site")} · ${escapeHtml(audit.meta.department || "ยังไม่ระบุแผนก")} · ${escapeHtml(audit.meta.area || "ยังไม่ระบุพื้นที่")} · ${escapeHtml(formatDate(audit.meta.auditDate))}</p>
         </div>
         <div class="dashboard-hero-actions">
           <button type="button" class="dashboard-action audit-action" data-dashboard-action="audit">
