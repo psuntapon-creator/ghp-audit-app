@@ -345,9 +345,34 @@
     downloadBlob(JSON.stringify({ schemaVersion: 1, exportedAt: new Date().toISOString(), audit }, null, 2), safeFilename("json"), "application/json;charset=utf-8");
     showToast("ดาวน์โหลดไฟล์สำรองแล้ว");
   }
-  function preparePrint() {
+  async function preparePrint() {
     const stats = getStats();
     const result = stats.answered === stats.total ? (stats.percent >= PASS_THRESHOLD ? "ผ่าน" : "ไม่ผ่าน") : "ยังไม่ครบ";
+    const findings = allItems.map((item) => ({
+      item,
+      response: responseFor(item.id),
+      section: sections.find((section) => section.id === item.sectionId),
+    })).filter(({ response }) => ["major", "minor", "observe"].includes(response.rating));
+    const findingProfiles = [
+      { rating: "major", label: "Major", deadline: "7 วันทำการ" },
+      { rating: "minor", label: "Minor", deadline: "10 วันทำการ" },
+      { rating: "observe", label: "Observe", deadline: "15 วันทำการ" },
+    ];
+    const findingsReport = findings.length ? `<section class="print-findings">
+      <div class="print-findings-title"><h2>Defect / ข้อค้นพบจากการตรวจประเมิน</h2><p>จัดกลุ่มตามระดับ Major, Minor และ Observe อ้างอิงรูปแบบรายงานต้นฉบับ</p></div>
+      ${findingProfiles.map((findingProfile) => {
+        const entries = findings.filter(({ response }) => response.rating === findingProfile.rating);
+        if (!entries.length) return "";
+        return `<section class="print-finding-group" data-rating="${findingProfile.rating}">
+          <header><h3>${findingProfile.label} <span>${entries.length} ข้อ</span></h3><p>ต้องปรับปรุงแก้ไขให้แล้วเสร็จภายใน ${findingProfile.deadline}</p></header>
+          ${entries.map(({ item, response, section }, entryIndex) => `<article class="print-finding-card">
+            <div class="print-finding-meta"><b>${entryIndex + 1}. Requirement ${escapeHtml(item.id)}</b><span>${escapeHtml(sectionShortTitle(section))} · ${escapeHtml(audit.meta.area || "ยังไม่ระบุพื้นที่")}</span></div>
+            <div class="print-finding-description"><span>Description / Evidence</span><p>${escapeHtml(response.note || "ไม่ได้ระบุรายละเอียด")}</p></div>
+            ${(response.photos || []).length ? `<div class="print-photo-grid">${response.photos.map((photo, photoIndex) => `<figure><img src="${escapeHtml(photo)}" alt="รูปหลักฐานข้อ ${escapeHtml(item.id)} รูปที่ ${photoIndex + 1}" /><figcaption>รูปหลักฐาน ${photoIndex + 1}</figcaption></figure>`).join("")}</div>` : `<p class="print-no-photo">ไม่มีรูปหลักฐานแนบ</p>`}
+          </article>`).join("")}
+        </section>`;
+      }).join("")}
+    </section>` : "";
     els.printReport.innerHTML = `
       <header class="print-header"><h1>KCG GHP Audit Report</h1><div>KCG Corporation Public Company Limited · Quality System Dept.</div></header>
       <div class="print-meta">
@@ -359,7 +384,14 @@
         <div><span>เกณฑ์คะแนน</span><br><b>${escapeHtml(profile().label)}</b></div>
       </div>
       <div class="print-summary"><div>ตอบแล้ว<br><b>${stats.answered}/${stats.total}</b></div><div>คะแนน<br><b>${stats.score}/${stats.maxScore}</b></div><div>คิดเป็น<br><b>${displayPercent(stats.percent)}%</b></div><div>ผลประเมิน<br><b>${result}</b></div></div>
-      ${sections.map((section) => `<section class="print-section"><h2>${escapeHtml(section.title)}</h2><table class="print-table"><thead><tr><th class="print-code">ข้อ</th><th>สิ่งที่ต้องตรวจสอบ</th><th class="print-rating">ผล</th><th class="print-note">ข้อค้นพบ</th></tr></thead><tbody>${section.items.map((item) => { const response = responseFor(item.id); return `<tr><td>${item.id}</td><td>${escapeHtml(item.text).replace(/\n/g,"<br>")}</td><td class="print-rating">${response.rating ? RATING_LABELS[response.rating] : "—"}</td><td>${escapeHtml(response.note || "")}</td></tr>`; }).join("")}</tbody></table></section>`).join("")}`;
+      ${findingsReport}
+      <h2 class="print-checklist-heading">รายละเอียด Checklist ทั้งหมด</h2>
+      ${sections.map((section) => `<section class="print-section"><h2>${escapeHtml(section.title)}</h2><table class="print-table"><thead><tr><th class="print-code">ข้อ</th><th>สิ่งที่ต้องตรวจสอบ</th><th class="print-rating">ผล</th><th class="print-note">ข้อค้นพบ</th></tr></thead><tbody>${section.items.map((item) => { const response = responseFor(item.id); const photoCount = response.photos?.length || 0; return `<tr><td>${item.id}</td><td>${escapeHtml(item.text).replace(/\n/g,"<br>")}</td><td class="print-rating">${response.rating ? RATING_LABELS[response.rating] : "—"}</td><td>${escapeHtml(response.note || "")}${photoCount ? `<small class="print-photo-count">แนบรูป ${photoCount} รูป</small>` : ""}</td></tr>`; }).join("")}</tbody></table></section>`).join("")}`;
+    const printImages = [...els.printReport.querySelectorAll("img")];
+    await Promise.all(printImages.map((image) => image.complete ? Promise.resolve() : new Promise((resolve) => {
+      image.addEventListener("load", resolve, { once: true });
+      image.addEventListener("error", resolve, { once: true });
+    })));
   }
 
   async function showHistory() {
@@ -456,12 +488,12 @@
       }
     });
     els.exportButton.addEventListener("click", () => els.exportDialog.showModal());
-    els.exportDialog.addEventListener("click", (event) => {
+    els.exportDialog.addEventListener("click", async (event) => {
       const button = event.target.closest("[data-export]");
       if (!button) return;
       if (button.dataset.export === "csv") exportCsv();
       if (button.dataset.export === "json") exportJson();
-      if (button.dataset.export === "print") { preparePrint(); window.print(); }
+      if (button.dataset.export === "print") { await preparePrint(); window.print(); }
       els.exportDialog.close();
     });
     els.completeButton.addEventListener("click", completeAudit);
