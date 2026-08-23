@@ -7,6 +7,8 @@
     departments: ["PD4"],
     areas: ["Dairy filling"],
   };
+  const DEFAULT_AUDIT_TITLE = "แบบการตรวจประเมิน GHP เขตพื้นที่การผลิตและคลังสินค้า";
+  const LEGACY_AUDIT_TITLES = new Set(["การตรวจประเมิน GHP เขตพื้นที่การผลิต"]);
   const MASTER_LABELS = { sites: "Site / สถานที่ตั้ง", departments: "แผนก", areas: "พื้นที่ตรวจ" };
   let sections = JSON.parse(JSON.stringify(DEFAULT_SECTIONS));
   let masterData = JSON.parse(JSON.stringify(DEFAULT_MASTER_DATA));
@@ -86,7 +88,6 @@
         targetDate: "",
         actionStatus: "open",
         closurePhotos: [],
-        confirmed: false,
       };
     });
     const now = new Date().toISOString();
@@ -96,8 +97,9 @@
       updatedAt: now,
       status: "draft",
       scoringProfile: "pd",
+      sectionConfirmations: {},
       meta: {
-        title: "การตรวจประเมิน GHP เขตพื้นที่การผลิต",
+        title: DEFAULT_AUDIT_TITLE,
         site: "",
         department: "PD4",
         area: "Dairy filling",
@@ -191,7 +193,13 @@
   }
   async function listAudits() {
     const results = await dbRequest("readonly", (store) => store.getAll());
-    return results.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    return results.map(normalizeAudit).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  function normalizeAudit(entry) {
+    if (!entry.meta) entry.meta = {};
+    if (!entry.meta.title || LEGACY_AUDIT_TITLES.has(entry.meta.title)) entry.meta.title = DEFAULT_AUDIT_TITLE;
+    return entry;
   }
 
   function responseFor(itemId) {
@@ -206,7 +214,6 @@
     if (!("targetDate" in response)) response.targetDate = "";
     if (!("actionStatus" in response)) response.actionStatus = "open";
     if (!Array.isArray(response.closurePhotos)) response.closurePhotos = [];
-    if (!("confirmed" in response)) response.confirmed = false;
     return response;
   }
   function profile() { return PROFILES[audit.scoringProfile] || PROFILES.pd; }
@@ -272,7 +279,8 @@
     ];
     sections.forEach((section) => {
       const stats = getStats(section.items);
-      items.push(`<button class="nav-item ${currentStep === section.id ? "active" : ""} ${stats.answered === stats.total ? "complete" : ""}" data-step="${section.id}" data-short="${escapeHtml(sectionShortTitle(section))}"><span class="nav-number">${section.id}</span><span class="nav-label">${escapeHtml(sectionShortTitle(section))}</span><span class="nav-progress">${stats.answered}/${stats.total}</span></button>`);
+      const sectionConfirmed = Boolean(audit.sectionConfirmations?.[section.id]);
+      items.push(`<button class="nav-item ${currentStep === section.id ? "active" : ""} ${sectionConfirmed ? "complete" : ""}" data-step="${section.id}" data-short="${escapeHtml(sectionShortTitle(section))}"><span class="nav-number">${section.id}</span><span class="nav-label">${escapeHtml(sectionShortTitle(section))}</span><span class="nav-progress">${sectionConfirmed ? "ยืนยันแล้ว" : `${stats.answered}/${stats.total}`}</span></button>`);
     });
     els.sectionNav.innerHTML = items.join("");
   }
@@ -307,8 +315,16 @@
           <p>${escapeHtml(audit.meta.site || "ยังไม่ระบุ Site")} · ${escapeHtml(audit.meta.department || "ยังไม่ระบุแผนก")} · ${escapeHtml(audit.meta.area || "ยังไม่ระบุพื้นที่")} · ${escapeHtml(formatDate(audit.meta.auditDate))}</p>
         </div>
         <div class="dashboard-hero-actions">
-          <button type="button" class="button primary" data-dashboard-action="audit">กรอกแบบตรวจ</button>
-          <button type="button" class="button hero-secondary" data-dashboard-action="defects">ตอบกลับข้อบกพร่อง${openFindings.length ? ` (${openFindings.length})` : ""}</button>
+          <button type="button" class="dashboard-action audit-action" data-dashboard-action="audit">
+            <span class="dashboard-action-icon" aria-hidden="true">✎</span>
+            <span class="dashboard-action-copy"><strong>กรอกแบบตรวจ</strong><small>${stats.answered ? `ทำต่อจาก ${stats.answered}/${stats.total} ข้อ` : "เริ่มการตรวจประเมิน"}</small></span>
+            <span class="dashboard-action-arrow" aria-hidden="true">→</span>
+          </button>
+          <button type="button" class="dashboard-action defect-action ${openFindings.length ? "has-findings" : ""}" data-dashboard-action="defects">
+            <span class="dashboard-action-icon" aria-hidden="true">!</span>
+            <span class="dashboard-action-copy"><strong>ตอบกลับข้อบกพร่อง</strong><small>${openFindings.length ? `${openFindings.length} รายการรอดำเนินการ` : "ยังไม่มีรายการเปิด"}</small></span>
+            ${openFindings.length ? `<span class="dashboard-action-count" aria-label="${openFindings.length} รายการ">${openFindings.length}</span>` : `<span class="dashboard-action-arrow" aria-hidden="true">→</span>`}
+          </button>
         </div>
       </section>
       <section class="metric-grid" aria-label="สรุปผลการตรวจ">
@@ -418,38 +434,41 @@
       <section class="admin-data-card"><div class="card-heading"><div><span class="eyebrow">Audit data</span><h3>ข้อมูลแบบตรวจบนอุปกรณ์</h3></div></div><div class="admin-audit-list">${audits.length ? audits.map((entry) => { const stats = entryStats(entry); return `<article data-admin-audit="${escapeHtml(entry.id)}"><div><b>${escapeHtml(entry.meta?.area || "ยังไม่ระบุพื้นที่")}</b><span>${escapeHtml(entry.meta?.site || "ยังไม่ระบุ Site")} · ${escapeHtml(entry.meta?.department || "—")} · ${escapeHtml(formatDate(entry.meta?.auditDate))}</span></div><div><strong>${stats.answered}/${allItems.length}</strong><span>${entry.status === "complete" ? "เสร็จสิ้น" : "ฉบับร่าง"}</span></div><button type="button" class="admin-delete-button" data-admin-action="delete-audit">ลบข้อมูล</button></article>`; }).join("") : `<div class="dashboard-empty compact">ยังไม่มีข้อมูลแบบตรวจ</div>`}</div></section>`;
   }
 
-  async function confirmAndAdvance(itemId) {
-    const response = responseFor(itemId);
-    if (!response.rating) {
-      showToast("กรุณาเลือกผลการตรวจก่อนยืนยัน");
+  function invalidateSectionConfirmation(sectionId) {
+    if (!audit.sectionConfirmations?.[sectionId]) return;
+    delete audit.sectionConfirmations[sectionId];
+  }
+
+  async function confirmSectionAndAdvance(sectionId) {
+    const section = sections.find((entry) => entry.id === sectionId);
+    if (!section) return;
+    const firstMissing = section.items.find((item) => !responseFor(item.id).rating);
+    if (firstMissing) {
+      searchTerm = "";
+      findingsOnly = false;
+      els.itemSearch.value = "";
+      els.findingFilter.checked = false;
+      renderChecklist();
+      requestAnimationFrame(() => {
+        const missingCard = els.checklist.querySelector(`[data-item-id="${CSS.escape(firstMissing.id)}"]`);
+        missingCard?.scrollIntoView({ behavior: "smooth", block: "center" });
+        missingCard?.querySelector("[data-rating]")?.focus({ preventScroll: true });
+      });
+      showToast(`กรุณาตอบข้อ ${firstMissing.id} ก่อนยืนยันหมวด`);
       return;
     }
-    response.confirmed = true;
+    if (!audit.sectionConfirmations) audit.sectionConfirmations = {};
+    audit.sectionConfirmations[sectionId] = new Date().toISOString();
     await saveNow();
-    const currentIndex = allItems.findIndex((item) => item.id === itemId);
-    const nextItem = allItems[currentIndex + 1];
-    if (!nextItem) {
+    const sectionIndex = sections.findIndex((entry) => entry.id === sectionId);
+    const nextSection = sections[sectionIndex + 1];
+    if (!nextSection) {
       navigate("dashboard");
-      showToast("ยืนยันครบถึงข้อสุดท้ายแล้ว");
+      showToast(`ยืนยันหมวด ${sectionId} แล้ว · ตรวจสอบสรุปผลได้เลย`);
       return;
     }
-    if (nextItem.sectionId !== currentStep) {
-      navigate(nextItem.sectionId);
-      showToast(`ยืนยันข้อ ${itemId} แล้ว · ไปหมวดถัดไป`);
-      return;
-    }
-    searchTerm = "";
-    findingsOnly = false;
-    els.itemSearch.value = "";
-    els.findingFilter.checked = false;
-    renderChecklist();
-    requestAnimationFrame(() => {
-      const nextCard = els.checklist.querySelector(`[data-item-id="${CSS.escape(nextItem.id)}"]`);
-      nextCard?.scrollIntoView({ behavior: "smooth", block: "center" });
-      nextCard?.querySelector("[data-rating]")?.focus({ preventScroll: true });
-    });
-    updateSummary();
-    showToast(`ยืนยันข้อ ${itemId} แล้ว · ไปข้อ ${nextItem.id}`);
+    navigate(nextSection.id);
+    showToast(`ยืนยันหมวด ${sectionId} แล้ว · ไปหมวด ${nextSection.id}`);
   }
 
   function renderMeta() {
@@ -490,6 +509,9 @@
     const section = sections.find((entry) => entry.id === currentStep);
     if (!section) return;
     const stats = getStats(section.items);
+    const remaining = stats.total - stats.answered;
+    const sectionConfirmed = Boolean(audit.sectionConfirmations?.[section.id]);
+    const nextSection = sections[sections.findIndex((entry) => entry.id === section.id) + 1];
     els.sectionEyebrow.textContent = `หมวดที่ ${section.id} จาก ${sections.length}`;
     els.sectionTitle.textContent = section.title.replace(/^\d+\.\s*/, "");
     els.sectionSubtitle.textContent = `${section.items.length} ข้อ · คะแนนเต็ม ${section.items.length * 2}`;
@@ -507,7 +529,7 @@
       const response = responseFor(item.id);
       const isFinding = response.rating && response.rating !== "comply";
       const scoreProfile = profile();
-      return `<article class="check-item ${response.confirmed ? "confirmed" : ""}" data-item-id="${item.id}">
+      return `<article class="check-item" data-item-id="${item.id}">
         <div class="check-main">
           <span class="item-code">${item.id}</span>
           <div>
@@ -526,12 +548,11 @@
             ${(response.photos || []).map((photo, index) => `<span class="photo-wrap"><img class="photo-thumb" src="${photo}" alt="รูปแนบข้อ ${item.id}" /><button type="button" class="photo-remove" data-photo-remove="${index}" aria-label="ลบรูป">×</button></span>`).join("")}
           </div>
         </div>
-        <div class="item-confirm-row">
-          <span>${response.confirmed ? "ยืนยันคำตอบข้อนี้แล้ว" : response.rating ? "ตรวจสอบคำตอบแล้วกดยืนยัน" : "กรุณาเลือกผลการตรวจก่อน"}</span>
-          <button type="button" class="button ${response.confirmed ? "secondary" : "primary"}" data-confirm-item ${response.rating ? "" : "disabled"}>${response.confirmed ? "ยืนยันอีกครั้งและไปข้อต่อไป →" : "ยืนยันและไปข้อต่อไป →"}</button>
-        </div>
       </article>`;
-    }).join("");
+    }).join("") + `<section class="section-confirm-row ${sectionConfirmed ? "confirmed" : ""}">
+      <div><strong>${sectionConfirmed ? `หมวด ${section.id} ยืนยันแล้ว` : remaining ? `เหลืออีก ${remaining} ข้อ` : "กรอกครบทุกข้อแล้ว"}</strong><span>${remaining ? "กรุณาตอบข้อย่อยให้ครบก่อนยืนยันหมวด" : "ตรวจสอบคำตอบทั้งหมด แล้วกดยืนยันเพียงครั้งเดียว"}</span></div>
+      <button type="button" class="button ${sectionConfirmed ? "secondary" : "primary"}" data-confirm-section="${section.id}" ${remaining ? "disabled" : ""}>${sectionConfirmed ? "ยืนยันหมวดนี้อีกครั้ง" : `ยืนยันหมวด ${section.id}`} ${nextSection ? `และไปหมวด ${nextSection.id} →` : "และดูสรุปผล →"}</button>
+    </section>`;
     els.emptyState.hidden = visible.length > 0;
   }
 
@@ -711,6 +732,12 @@
       navigate(firstMissing.sectionId);
       return;
     }
+    const firstUnconfirmed = sections.find((section) => !audit.sectionConfirmations?.[section.id]);
+    if (firstUnconfirmed) {
+      showToast(`กรุณายืนยันหมวด ${firstUnconfirmed.id} ก่อนเสร็จสิ้นการตรวจ`);
+      navigate(firstUnconfirmed.id);
+      return;
+    }
     const missingNotes = allItems.filter((item) => {
       const response = responseFor(item.id);
       return response.rating !== "comply" && !response.note.trim();
@@ -738,7 +765,7 @@
       if (action === "history") showHistory();
       const recent = event.target.closest("[data-audit-id]");
       if (recent && recent.dataset.auditId !== audit.id) {
-        audit = await dbRequest("readonly", (store) => store.get(recent.dataset.auditId));
+        audit = normalizeAudit(await dbRequest("readonly", (store) => store.get(recent.dataset.auditId)));
         navigate("dashboard");
         showToast("เปิดแบบตรวจแล้ว");
       }
@@ -746,24 +773,27 @@
     els.itemSearch.addEventListener("input", () => { searchTerm = els.itemSearch.value; renderChecklist(); });
     els.findingFilter.addEventListener("change", () => { findingsOnly = els.findingFilter.checked; renderChecklist(); });
     els.checklist.addEventListener("click", async (event) => {
+      const confirmSectionButton = event.target.closest("[data-confirm-section]");
+      if (confirmSectionButton) {
+        await confirmSectionAndAdvance(confirmSectionButton.dataset.confirmSection);
+        return;
+      }
       const itemElement = event.target.closest(".check-item");
       if (!itemElement) return;
       const itemId = itemElement.dataset.itemId;
       const ratingButton = event.target.closest("[data-rating]");
       const removeButton = event.target.closest("[data-photo-remove]");
-      const confirmButton = event.target.closest("[data-confirm-item]");
-      if (confirmButton) {
-        await confirmAndAdvance(itemId);
-      } else if (ratingButton) {
+      if (ratingButton) {
         const response = responseFor(itemId);
         response.rating = ratingButton.dataset.rating;
-        response.confirmed = false;
+        invalidateSectionConfirmation(currentStep);
         if (FINDING_RULES[response.rating] && !response.targetDate) response.targetDate = suggestedTargetDate(response.rating);
         audit.status = "draft";
         scheduleSave();
         updateAll();
       } else if (removeButton) {
         responseFor(itemId).photos.splice(Number(removeButton.dataset.photoRemove), 1);
+        invalidateSectionConfirmation(currentStep);
         scheduleSave();
         renderChecklist();
       }
@@ -772,6 +802,7 @@
       if (!event.target.matches("[data-note]")) return;
       const itemId = event.target.closest(".check-item").dataset.itemId;
       responseFor(itemId).note = event.target.value;
+      invalidateSectionConfirmation(currentStep);
       audit.status = "draft";
       scheduleSave();
     });
@@ -782,6 +813,7 @@
         showToast("กำลังย่อและแนบรูป...");
         const photo = await compressImage(event.target.files[0]);
         responseFor(itemId).photos.push(photo);
+        invalidateSectionConfirmation(currentStep);
         scheduleSave();
         renderChecklist();
         showToast("แนบรูปแล้ว");
@@ -970,7 +1002,6 @@
         if (audit.id === auditId) {
           const remaining = await listAudits();
           audit = remaining[0] || createAudit();
-          if (!remaining.length) await saveNow();
         }
         updateAll({ checklist: false });
         showToast("ลบข้อมูลแบบตรวจแล้ว");
@@ -1001,23 +1032,19 @@
       els.exportDialog.close();
     });
     els.completeButton.addEventListener("click", completeAudit);
-    els.mobileNextButton.addEventListener("click", () => {
+    els.mobileNextButton.addEventListener("click", async () => {
       if (currentStep === "dashboard") navigate("meta");
       else if (currentStep === "defects") navigate("dashboard");
       else if (currentStep === "admin") navigate("dashboard");
       else if (currentStep === "meta") navigate(sections[0].id);
-      else {
-        const index = sections.findIndex((section) => section.id === currentStep);
-        if (index < sections.length - 1) navigate(sections[index + 1].id);
-        else completeAudit();
-      }
+      else await confirmSectionAndAdvance(currentStep);
     });
     els.historyButton.addEventListener("click", showHistory);
     els.historyList.addEventListener("click", async (event) => {
       const item = event.target.closest("[data-history-id]");
       if (!item) return;
       if (event.target.closest("[data-history-open]")) {
-        audit = await dbRequest("readonly", (store) => store.get(item.dataset.historyId));
+        audit = normalizeAudit(await dbRequest("readonly", (store) => store.get(item.dataset.historyId)));
         els.historyDialog.close();
         navigate("dashboard");
         showToast("เปิดแบบตรวจแล้ว");
@@ -1026,8 +1053,8 @@
         if (!confirm("ลบแบบตรวจนี้ออกจากอุปกรณ์หรือไม่?")) return;
         await dbRequest("readwrite", (store) => store.delete(item.dataset.historyId));
         if (item.dataset.historyId === audit.id) {
-          audit = createAudit();
-          await saveNow();
+          const remaining = await listAudits();
+          audit = remaining[0] || createAudit();
           navigate("dashboard");
         }
         showHistory();
@@ -1035,7 +1062,6 @@
     });
     els.newAuditButton.addEventListener("click", async () => {
       audit = createAudit();
-      await saveNow();
       els.historyDialog.close();
       navigate("meta");
       showToast("สร้างแบบตรวจใหม่แล้ว");
@@ -1058,7 +1084,6 @@
       await loadChecklistSettings();
       const audits = await listAudits();
       audit = audits[0] || createAudit();
-      if (!audits.length) await saveNow();
       bindEvents();
       navigate("dashboard");
     } catch (error) {
