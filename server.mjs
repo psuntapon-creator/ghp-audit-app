@@ -21,5 +21,5 @@ const server = http.createServer((request, response) => {
 });
 
 server.listen(port, "127.0.0.1", () => {
-  console.log(`GHP Audit app is running at http://127.0.0.1:${port}`);
+  console.log(`KCG GHP Audit Report is running at http://127.0.0.1:${port}`);
 });

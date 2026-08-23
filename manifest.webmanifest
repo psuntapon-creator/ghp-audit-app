@@ -1,6 +1,6 @@
 {
-  "name": "GHP Audit Monitoring",
-  "short_name": "GHP Audit",
+  "name": "KCG GHP Audit Report",
+  "short_name": "KCG GHP Audit Report",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#f4f8f7",

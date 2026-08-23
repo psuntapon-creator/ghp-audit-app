@@ -10,7 +10,7 @@ $nodePath = if ($nodeCommand) {
 
 if (-not (Test-Path -LiteralPath $nodePath)) {
     Add-Type -AssemblyName PresentationFramework
-    [System.Windows.MessageBox]::Show("Node.js was not found. Install Node.js, then run this launcher again.", "GHP Audit") | Out-Null
+    [System.Windows.MessageBox]::Show("Node.js was not found. Install Node.js, then run this launcher again.", "KCG GHP Audit Report") | Out-Null
     exit 1
 }
 

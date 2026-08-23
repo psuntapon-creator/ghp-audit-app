@@ -1,4 +1,4 @@
-# GHP Audit App
+# KCG GHP Audit Report
 
 แอปกรอกผลตรวจประเมิน GHP ที่สร้างจากเช็กลิสต์ในไฟล์ Excel ต้นฉบับ รองรับการใช้งานบนคอมพิวเตอร์และโทรศัพท์
 
@@ -29,4 +29,3 @@ Repository นี้มี workflow `.github/workflows/deploy-pages.yml` สำ�
 4. เมื่อ workflow เสร็จ แอปจะอยู่ที่ `https://<username>.github.io/<repository>/`
 
 หน้าแอปเป็นสาธารณะ แต่ข้อมูล Audit และรูปหลักฐานยังเก็บอยู่ในเบราว์เซอร์ของแต่ละเครื่อง ไม่ถูกส่งขึ้น GitHub
-

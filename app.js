@@ -328,7 +328,7 @@
   function csvCell(value) { return `"${String(value ?? "").replace(/"/g, '""')}"`; }
   function exportCsv() {
     const rows = [
-      ["GHP Audit Monitoring"],
+      ["KCG GHP Audit Report"],
       ["แผนก", audit.meta.department, "พื้นที่", audit.meta.area],
       ["วันที่ตรวจ", audit.meta.auditDate, "Auditor", audit.meta.auditor, "Auditee", audit.meta.auditee],
       [],
@@ -351,7 +351,7 @@
     const stats = getStats();
     const result = stats.answered === stats.total ? (stats.percent >= PASS_THRESHOLD ? "ผ่าน" : "ไม่ผ่าน") : "ยังไม่ครบ";
     els.printReport.innerHTML = `
-      <header class="print-header"><h1>GHP Audit Monitoring</h1><div>KCG Corporation Public Company Limited · Quality System Dept.</div></header>
+      <header class="print-header"><h1>KCG GHP Audit Report</h1><div>KCG Corporation Public Company Limited · Quality System Dept.</div></header>
       <div class="print-meta">
         <div><span>แผนก</span><br><b>${escapeHtml(audit.meta.department)}</b></div>
         <div><span>พื้นที่</span><br><b>${escapeHtml(audit.meta.area)}</b></div>
