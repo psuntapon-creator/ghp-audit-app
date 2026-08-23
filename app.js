@@ -193,7 +193,6 @@
       input.addEventListener("input", () => {
         audit.meta[input.dataset.meta] = input.value;
         audit.status = "draft";
-        els.auditAreaLabel.textContent = `${audit.meta.department || "—"} · ${audit.meta.area || "ยังไม่ระบุพื้นที่"}`;
         scheduleSave();
       });
     });
@@ -268,7 +267,6 @@
       els.resultBadge.className = "result-badge fail";
       els.resultBadge.textContent = "ไม่ผ่านเกณฑ์";
     }
-    els.auditAreaLabel.textContent = `${audit.meta.department || "—"} · ${audit.meta.area || "ยังไม่ระบุพื้นที่"}`;
     els.mobileNextButton.textContent = currentStep === "meta" ? "เริ่มตรวจ" : currentStep === sections.at(-1).id ? "สรุปผล" : "หมวดถัดไป";
   }
 
@@ -508,7 +506,7 @@
   async function init() {
     Object.assign(els, {
       homeButton: $("homeButton"), historyButton: $("historyButton"), saveStatus: $("saveStatus"),
-      auditAreaLabel: $("auditAreaLabel"), progressText: $("progressText"), progressBar: $("progressBar"), progressHint: $("progressHint"),
+      progressText: $("progressText"), progressBar: $("progressBar"), progressHint: $("progressHint"),
       sectionNav: $("sectionNav"), scoringButton: $("scoringButton"), metaView: $("metaView"), checklistView: $("checklistView"),
       sectionEyebrow: $("sectionEyebrow"), sectionTitle: $("sectionTitle"), sectionSubtitle: $("sectionSubtitle"), sectionScore: $("sectionScore"),
       itemSearch: $("itemSearch"), findingFilter: $("findingFilter"), checklist: $("checklist"), emptyState: $("emptyState"),
