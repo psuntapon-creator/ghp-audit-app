@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b6b5f" />
+    <meta name="description" content="แอปบันทึกผลตรวจประเมิน GHP สำหรับพื้นที่ผลิต" />
+    <title>GHP Audit — Dairy Filling</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="data.js" defer></script>
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <button class="brand" id="homeButton" type="button" aria-label="กลับหน้าข้อมูลการตรวจ">
+        <span class="brand-mark">G</span>
+        <span><strong>GHP Audit</strong><small>Quality System</small></span>
+      </button>
+      <div class="top-actions">
+        <span class="save-status" id="saveStatus"><span class="save-dot"></span>บันทึกแล้ว</span>
+        <button class="icon-button" id="historyButton" type="button" title="รายการแบบตรวจ" aria-label="รายการแบบตรวจ">⌂</button>
+        <button class="avatar" type="button" title="ผู้ตรวจ">QS</button>
+      </div>
+    </header>
+
+    <div class="app-shell">
+      <aside class="sidebar" id="sidebar">
+        <div class="audit-title">
+          <span class="eyebrow">แบบตรวจประเมิน</span>
+          <h1>GHP Audit Monitoring</h1>
+          <p id="auditAreaLabel">PD4 · Dairy filling</p>
+        </div>
+
+        <div class="overall-card">
+          <div>
+            <span>ความคืบหน้า</span>
+            <strong id="progressText">0 / 40</strong>
+          </div>
+          <div class="progress-track"><i id="progressBar"></i></div>
+          <small id="progressHint">เริ่มกรอกข้อมูลการตรวจ</small>
+        </div>
+
+        <nav class="section-nav" id="sectionNav" aria-label="หมวดการตรวจ"></nav>
+
+        <div class="scoring-card">
+          <div class="scoring-head">
+            <strong>เกณฑ์คะแนน</strong>
+            <button type="button" class="text-button" id="scoringButton">ตั้งค่า</button>
+          </div>
+          <div class="legend-mini">
+            <span><i class="dot comply"></i>Comply</span>
+            <span><i class="dot observe"></i>Observe</span>
+            <span><i class="dot minor"></i>Minor</span>
+            <span><i class="dot major"></i>Major</span>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <section id="metaView" class="view-panel"></section>
+        <section id="checklistView" class="view-panel" hidden>
+          <div class="section-heading">
+            <div>
+              <span class="eyebrow" id="sectionEyebrow">หมวดที่ 1 จาก 6</span>
+              <h2 id="sectionTitle"></h2>
+              <p id="sectionSubtitle"></p>
+            </div>
+            <div class="section-score" id="sectionScore"></div>
+          </div>
+
+          <div class="toolbar">
+            <label class="search-box">
+              <span aria-hidden="true">⌕</span>
+              <input id="itemSearch" type="search" placeholder="ค้นหาในหมวดนี้" />
+            </label>
+            <label class="filter-toggle">
+              <input id="findingFilter" type="checkbox" />
+              <span>เฉพาะข้อพบ</span>
+            </label>
+          </div>
+
+          <div class="checklist" id="checklist"></div>
+          <div class="empty-state" id="emptyState" hidden>ไม่พบรายการที่ตรงกับตัวกรอง</div>
+        </section>
+      </main>
+
+      <aside class="score-rail">
+        <div class="score-card">
+          <span class="score-label">คะแนนปัจจุบัน</span>
+          <div class="score-value"><strong id="overallScore">—</strong><small>%</small></div>
+          <span class="result-badge neutral" id="resultBadge">ยังไม่เริ่ม</span>
+          <div class="score-breakdown">
+            <span><i class="dot comply"></i>Comply <b id="countComply">0</b></span>
+            <span><i class="dot observe"></i>Observe <b id="countObserve">0</b></span>
+            <span><i class="dot minor"></i>Minor <b id="countMinor">0</b></span>
+            <span><i class="dot major"></i>Major <b id="countMajor">0</b></span>
+          </div>
+        </div>
+
+        <div class="rail-actions">
+          <button class="button secondary" id="exportButton" type="button">ส่งออกข้อมูล</button>
+          <button class="button primary" id="completeButton" type="button">เสร็จสิ้นการตรวจ</button>
+        </div>
+        <p class="privacy-note">ข้อมูลบันทึกอยู่บนอุปกรณ์นี้ จนกว่าจะส่งออกหรือลบ</p>
+      </aside>
+    </div>
+
+    <div class="mobile-footer">
+      <div><span>คะแนน</span><strong id="mobileScore">—</strong></div>
+      <button class="button primary" id="mobileNextButton" type="button">เริ่มตรวจ</button>
+    </div>
+
+    <dialog id="exportDialog" class="modal">
+      <form method="dialog">
+        <div class="modal-head">
+          <div><span class="eyebrow">ข้อมูลการตรวจ</span><h3>ส่งออกและจัดการ</h3></div>
+          <button class="icon-button" value="cancel" aria-label="ปิด">×</button>
+        </div>
+        <p>ดาวน์โหลดสำเนาสำหรับสำรองข้อมูล วิเคราะห์ต่อ หรือพิมพ์เป็นรายงาน</p>
+        <div class="export-grid">
+          <button type="button" class="export-option" data-export="csv"><b>CSV</b><span>รายการตรวจและคะแนน</span></button>
+          <button type="button" class="export-option" data-export="json"><b>JSON</b><span>สำรองข้อมูลทั้งหมด</span></button>
+          <button type="button" class="export-option" data-export="print"><b>PDF</b><span>พิมพ์หรือบันทึกเป็น PDF</span></button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="scoringDialog" class="modal small-modal">
+      <form method="dialog">
+        <div class="modal-head">
+          <div><span class="eyebrow">การคำนวณ</span><h3>เลือกรูปแบบคะแนน</h3></div>
+          <button class="icon-button" value="cancel" aria-label="ปิด">×</button>
+        </div>
+        <label class="profile-option">
+          <input type="radio" name="scoreProfile" value="pd" />
+          <span><b>Checklist PD</b><small>Comply 2 · Observe 1 · Minor 0 · Major -1</small></span>
+        </label>
+        <label class="profile-option">
+          <input type="radio" name="scoreProfile" value="definition" />
+          <span><b>Definition</b><small>Comply 2 · Observe 1.5 · Minor 1 · Major 0</small></span>
+        </label>
+        <div class="modal-actions"><button class="button primary" value="confirm">ใช้เกณฑ์นี้</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="historyDialog" class="modal history-modal">
+      <form method="dialog">
+        <div class="modal-head">
+          <div><span class="eyebrow">บนอุปกรณ์นี้</span><h3>รายการแบบตรวจ</h3></div>
+          <button class="icon-button" value="cancel" aria-label="ปิด">×</button>
+        </div>
+        <div id="historyList" class="history-list"></div>
+        <div class="modal-actions"><button type="button" class="button primary" id="newAuditButton">+ สร้างแบบตรวจใหม่</button></div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <section id="printReport" class="print-report"></section>
+  </body>
+</html>
