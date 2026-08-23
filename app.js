@@ -25,7 +25,7 @@
   };
   const DB_NAME = "ghp-audit-monitoring";
   const STORE_NAME = "audits";
-  const SETTINGS_STORE = "settings";
+  const SETTINGS_KEY = "ghp-checklist-settings-v1";
   const ADMIN_SALT = "ghp-admin-v1:";
   const ADMIN_HASH = "9df7e6c2a39fe0f381a066e9af7b6dfec0509e1ddbe10ad14a39df8e8eb0645f";
 
@@ -112,14 +112,15 @@
 
   function openDatabase() {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, 2);
+      // Open the current database version without forcing an upgrade. This keeps
+      // the app usable when an older tab is still open on the same device.
+      const request = indexedDB.open(DB_NAME);
       request.onupgradeneeded = () => {
         const database = request.result;
         if (!database.objectStoreNames.contains(STORE_NAME)) {
           const store = database.createObjectStore(STORE_NAME, { keyPath: "id" });
           store.createIndex("updatedAt", "updatedAt");
         }
-        if (!database.objectStoreNames.contains(SETTINGS_STORE)) database.createObjectStore(SETTINGS_STORE, { keyPath: "key" });
       };
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
@@ -134,17 +135,13 @@
       request.onerror = () => reject(request.error);
     });
   }
-  function settingsRequest(mode, operation) {
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(SETTINGS_STORE, mode);
-      const store = tx.objectStore(SETTINGS_STORE);
-      const request = operation(store);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-  }
   async function loadChecklistSettings() {
-    const saved = await settingsRequest("readonly", (store) => store.get("checklist"));
+    let saved;
+    try {
+      saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null");
+    } catch (error) {
+      console.warn("Unable to read checklist settings", error);
+    }
     if (Array.isArray(saved?.sections) && saved.sections.length) sections = saved.sections;
     if (saved?.masterData) {
       Object.keys(DEFAULT_MASTER_DATA).forEach((key) => {
@@ -154,7 +151,7 @@
     rebuildItems();
   }
   async function saveChecklistSettings() {
-    await settingsRequest("readwrite", (store) => store.put({ key: "checklist", sections, masterData, updatedAt: new Date().toISOString() }));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ sections, masterData, updatedAt: new Date().toISOString() }));
   }
   function scheduleChecklistSave() {
     els.saveStatus.classList.add("saving");
