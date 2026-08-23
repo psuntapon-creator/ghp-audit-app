@@ -3,8 +3,8 @@
   "short_name": "KCG GHP Audit Report",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#f4f8f7",
-  "theme_color": "#0b6b5f",
+  "background_color": "#f7f7f5",
+  "theme_color": "#db241c",
   "lang": "th",
   "icons": []
 }
