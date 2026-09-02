@@ -128,6 +128,7 @@ button { color: inherit; }
 .section-confirm-row.confirmed { border-color: #92d2ac; background: #eaf7ef; }
 .attachment-row { margin-top: 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .attach-button { border: 1px dashed #9abcb6; background: #f0f8f6; color: var(--primary); border-radius: 9px; padding: 7px 10px; font-size: 9px; font-weight: 700; cursor: pointer; }
+.attach-button.file-button { border-style: solid; background: #fff; color: #34363a; }
 .attach-button input { display: none; }
 .photo-thumb { width: 42px; height: 42px; border-radius: 8px; object-fit: cover; border: 1px solid var(--line); cursor: pointer; }
 .photo-wrap { position: relative; }
@@ -193,7 +194,7 @@ button { color: inherit; }
 .dashboard-hero .eyebrow { color: #ffc9c5; }
 .dashboard-hero h2 { margin: 8px 0 7px; font-size: clamp(27px, 3vw, 38px); line-height: 1.2; letter-spacing: -.035em; }
 .dashboard-hero p { margin: 0; color: #dededb; font-size: 12px; }
-.dashboard-hero-actions { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.dashboard-hero-actions { width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .dashboard-action { min-height: 72px; display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 11px; border-radius: 18px; padding: 12px 14px; cursor: pointer; text-align: left; transition: transform .16s ease, box-shadow .16s ease, background .16s ease; }
 .dashboard-action:hover { transform: translateY(-2px); }
 .dashboard-action:focus-visible { outline: 3px solid var(--brand-yellow, #f0bd00); outline-offset: 3px; }
@@ -210,6 +211,9 @@ button { color: inherit; }
 .defect-action .dashboard-action-icon { color: var(--primary); background: var(--primary-soft); }
 .defect-action.has-findings { border-color: #f6d66b; background: #fff8df; }
 .defect-action.has-findings .dashboard-action-icon { color: #684f00; background: #f4cc35; }
+.print-action { color: #2b2c30; border: 1px solid #f3d369; background: #fff7d9; box-shadow: 0 14px 28px rgba(0,0,0,.16); }
+.print-action:hover { background: #fff2bf; box-shadow: 0 17px 32px rgba(0,0,0,.22); }
+.print-action .dashboard-action-icon { color: #684f00; background: #f4cc35; }
 .dashboard-action-count { min-width: 30px; height: 30px; padding: 0 8px; display: grid; place-items: center; border-radius: 999px; color: white; background: var(--primary); font-size: 11px; font-weight: 800; }
 .button.hero-secondary { color: white; border-color: rgba(255,255,255,.38); background: rgba(255,255,255,.08); backdrop-filter: blur(8px); }
 .button.hero-secondary:hover { background: rgba(255,255,255,.16); }
@@ -302,6 +306,8 @@ button { color: inherit; }
 .admin-login-card form { display: grid; gap: 13px; text-align: left; }
 .admin-login-card form .button { width: 100%; }
 .admin-scope-note { display: block; margin-top: 16px; color: var(--muted); font-size: 8px; }
+.audit-type-field { padding: 15px; border: 1px solid #efd0cd; border-radius: 16px; background: #fff8f7; }
+.audit-type-field small { color: var(--muted); font-size: 9px; line-height: 1.5; }
 .admin-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .admin-heading h2 { margin: 5px 0 4px; font-size: 29px; }
 .admin-heading p { margin: 0; color: var(--muted); font-size: 10px; }
@@ -314,6 +320,8 @@ button { color: inherit; }
 .admin-metrics span, .admin-metrics strong { display: block; }
 .admin-metrics span { color: var(--muted); font-size: 9px; }
 .admin-metrics strong { margin-top: 9px; font-size: 22px; }
+.admin-checklist-picker { margin-bottom: 13px; padding: 16px 18px; border: 1px solid #ead0cd; border-radius: 18px; background: #fff8f7; }
+.admin-checklist-picker .field { max-width: 520px; }
 .admin-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 13px; padding: 18px 20px; border-radius: 20px; color: white; background: #2b2c30; }
 .admin-toolbar h3, .admin-toolbar p { margin: 0; }
 .admin-toolbar h3 { font-size: 16px; }
@@ -359,6 +367,8 @@ button { color: inherit; }
   .app-shell { grid-template-columns: 236px minmax(0, 1fr); }
   .score-rail { display: none; }
   .mobile-footer { position: fixed; left: 236px; right: 0; bottom: 0; background: rgba(255,255,255,.95); border-top: 1px solid var(--line); min-height: 64px; padding: 10px 24px; display: flex; align-items: center; justify-content: space-between; z-index: 18; backdrop-filter: blur(12px); }
+  .dashboard-hero-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dashboard-hero-actions .print-action { grid-column: 1 / -1; }
   .mobile-footer span, .mobile-footer strong { display: block; }
   .mobile-footer span { font-size: 9px; color: var(--muted); }
   .mobile-footer strong { font-size: 18px; }
@@ -411,6 +421,7 @@ button { color: inherit; }
   .export-option { display: grid; grid-template-columns: 50px 1fr; align-items: center; }
   .dashboard-hero { min-height: 250px; padding: 25px 22px; align-items: flex-start; flex-direction: column; }
   .dashboard-hero-actions { width: 100%; grid-template-columns: 1fr; }
+  .dashboard-hero-actions .print-action { grid-column: auto; }
   .dashboard-action { width: 100%; min-height: 68px; }
   .metric-grid { grid-template-columns: 1fr 1fr; }
   .metric-card { min-height: 130px; padding: 16px; }
@@ -485,6 +496,26 @@ button { color: inherit; }
   .print-code { width: 42px; }
   .print-rating { width: 62px; text-align: center; font-weight: bold; }
   .print-note { width: 24%; }
+  .blank-print-header h2 { margin: 10px 0 2px; font-size: 15px; }
+  .blank-print-header p { margin: 0; color: #555; }
+  .blank-print-meta { grid-template-columns: repeat(3, 1fr); margin: 12px 0; }
+  .blank-print-meta > div { min-height: 31px; }
+  .blank-line { height: 14px; border-bottom: 1px dotted #555; }
+  .blank-print-instruction { margin: 8px 0 12px; padding: 7px 9px; border: 1px solid #aaa; background: #fafafa; line-height: 1.5; }
+  .blank-print-report .print-checklist-heading { break-before: auto; font-size: 15px; }
+  .blank-print-section { margin-top: 9px; }
+  .blank-print-table { font-size: 8px; table-layout: fixed; }
+  .blank-print-table th, .blank-print-table td { padding: 4px; }
+  .blank-print-table .print-code { width: 9mm; }
+  .blank-rating { width: 10mm; text-align: center; font-size: 7px; overflow-wrap: anywhere; }
+  .blank-check { text-align: center; vertical-align: middle !important; font-size: 14px; }
+  .blank-note { width: 29mm; font-size: 7px; }
+  .blank-note-cell { height: 12mm; }
+  .blank-code { text-align: center; font-weight: bold; }
+  .blank-signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 18mm; margin-top: 18mm; break-inside: avoid; }
+  .blank-signatures > div { display: grid; grid-template-columns: auto 1fr auto 20mm; align-items: end; gap: 5px; }
+  .blank-signatures i { display: block; min-width: 25mm; height: 8mm; border-bottom: 1px dotted #333; }
+  .blank-signatures small { font-size: 8px; }
 }
 
 /* KCG corporate visual language — aligned with kcgcorporation.com */
@@ -683,6 +714,7 @@ button { color: inherit; }
   .rating-button:hover { border-color: #cbc9c5; background: white; }
   .finding-panel { background: #fcfaf8; border-top-color: #efeeeb; }
   .attach-button { border-color: #e3a7a3; background: var(--primary-soft); color: var(--primary); border-radius: 999px; }
+  .attach-button.file-button { border-color: #d8d6d2; background: white; color: #34363a; }
 
   .score-rail { padding: 34px 22px; }
   .score-card { border: 0; border-radius: 24px; padding: 24px; box-shadow: var(--shadow); position: relative; overflow: hidden; }
@@ -716,7 +748,7 @@ button { color: inherit; }
   .brand strong { max-width: 122px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .brand small { font-size: 7px; }
   .app-shell { min-height: calc(100vh - 66px); }
-  .sidebar { padding: 15px 14px 12px; }
+  .sidebar { position: static; top: auto; height: auto; padding: 15px 14px 12px; overflow: visible; }
   .nav-item { border-radius: 999px; }
   .main-content { padding: 24px 14px 94px; }
   .welcome-card { min-height: 205px; padding: 27px 23px; border-radius: 24px; }

@@ -1,7 +1,9 @@
 (() => {
   "use strict";
 
-  const DEFAULT_SECTIONS = JSON.parse(JSON.stringify(window.GHP_SECTIONS || []));
+  const DEFAULT_CHECKLISTS = JSON.parse(JSON.stringify(window.GHP_CHECKLISTS || {
+    production: { label: "ฝ่ายผลิต", shortLabel: "ผลิต", sections: window.GHP_SECTIONS || [] },
+  }));
   const DEFAULT_MASTER_DATA = {
     sites: ["โรงงานบางพลี", "โรงงานเทพารักษ์", "KCG Logistics Park", "IDG บางนา"],
     departments: ["PD4"],
@@ -10,7 +12,10 @@
   const DEFAULT_AUDIT_TITLE = "แบบการตรวจประเมิน GHP เขตพื้นที่การผลิตและคลังสินค้า";
   const LEGACY_AUDIT_TITLES = new Set(["การตรวจประเมิน GHP เขตพื้นที่การผลิต"]);
   const MASTER_LABELS = { sites: "Site / สถานที่ตั้ง", departments: "แผนก", areas: "พื้นที่ตรวจ" };
-  let sections = JSON.parse(JSON.stringify(DEFAULT_SECTIONS));
+  let checklistSets = JSON.parse(JSON.stringify(DEFAULT_CHECKLISTS));
+  let activeChecklistType = "production";
+  let adminChecklistType = "production";
+  let sections = checklistSets.production.sections;
   let masterData = JSON.parse(JSON.stringify(DEFAULT_MASTER_DATA));
   let allItems = [];
   const PASS_THRESHOLD = 87;
@@ -45,6 +50,26 @@
   function rebuildItems() {
     allItems = sections.flatMap((section) => section.items.map((item) => ({ ...item, sectionId: section.id })));
   }
+  function checklistForType(type) {
+    return checklistSets[type] || checklistSets.production || Object.values(checklistSets)[0];
+  }
+  function sectionsForType(type) {
+    return checklistForType(type)?.sections || [];
+  }
+  function itemsForType(type) {
+    return sectionsForType(type).flatMap((section) => section.items.map((item) => ({ ...item, sectionId: section.id })));
+  }
+  function auditTypeLabel(type) {
+    return checklistForType(type)?.label || "ฝ่ายผลิต";
+  }
+  function activateChecklist(type) {
+    activeChecklistType = checklistSets[type] ? type : "production";
+    sections = sectionsForType(activeChecklistType);
+    rebuildItems();
+  }
+  function activateAuditChecklist(entry = audit) {
+    activateChecklist(entry?.meta?.auditType || "production");
+  }
   rebuildItems();
 
   function $(id) { return document.getElementById(id); }
@@ -76,9 +101,11 @@
     if (section.id === "6") return "Food Defense";
     return clean;
   }
-  function createAudit() {
+  function createAudit(type = "production") {
+    const auditType = checklistSets[type] ? type : "production";
+    const auditItems = itemsForType(auditType);
     const responses = {};
-    allItems.forEach((item) => {
+    auditItems.forEach((item) => {
       responses[item.id] = {
         rating: null,
         note: "",
@@ -100,6 +127,7 @@
       sectionConfirmations: {},
       meta: {
         title: DEFAULT_AUDIT_TITLE,
+        auditType,
         site: "",
         department: "PD4",
         area: "Dairy filling",
@@ -144,16 +172,24 @@
     } catch (error) {
       console.warn("Unable to read checklist settings", error);
     }
-    if (Array.isArray(saved?.sections) && saved.sections.length) sections = saved.sections;
+    if (saved?.checklists && typeof saved.checklists === "object") {
+      Object.keys(DEFAULT_CHECKLISTS).forEach((type) => {
+        if (Array.isArray(saved.checklists[type]?.sections) && saved.checklists[type].sections.length) {
+          checklistSets[type].sections = saved.checklists[type].sections;
+        }
+      });
+    } else if (Array.isArray(saved?.sections) && saved.sections.length) {
+      checklistSets.production.sections = saved.sections;
+    }
     if (saved?.masterData) {
       Object.keys(DEFAULT_MASTER_DATA).forEach((key) => {
         if (Array.isArray(saved.masterData[key]) && saved.masterData[key].length) masterData[key] = saved.masterData[key];
       });
     }
-    rebuildItems();
+    activateChecklist(activeChecklistType);
   }
   async function saveChecklistSettings() {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ sections, masterData, updatedAt: new Date().toISOString() }));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ checklists: checklistSets, masterData, updatedAt: new Date().toISOString() }));
   }
   function scheduleChecklistSave() {
     els.saveStatus.classList.add("saving");
@@ -199,6 +235,7 @@
   function normalizeAudit(entry) {
     if (!entry.meta) entry.meta = {};
     if (!entry.meta.title || LEGACY_AUDIT_TITLES.has(entry.meta.title)) entry.meta.title = DEFAULT_AUDIT_TITLE;
+    if (!checklistSets[entry.meta.auditType]) entry.meta.auditType = "production";
     return entry;
   }
 
@@ -275,6 +312,7 @@
       `<button class="nav-item nav-main ${currentStep === "dashboard" ? "active" : ""}" data-step="dashboard" data-short="ภาพรวม"><span class="nav-number">⌂</span><span class="nav-label">Dashboard ภาพรวม</span><span class="nav-progress">ดูผล</span></button>`,
       `<button class="nav-item nav-main ${metaActive ? "active" : ""} ${metaComplete ? "complete" : ""}" data-step="meta" data-short="กรอกแบบตรวจ"><span class="nav-number">✎</span><span class="nav-label">กรอกแบบตรวจ</span><span class="nav-progress">${metaComplete ? "พร้อม" : "เริ่มกรอก"}</span></button>`,
       `<button class="nav-item nav-main ${currentStep === "defects" ? "active" : ""} ${findings.length && !openFindings ? "complete" : ""}" data-step="defects" data-short="ตอบข้อบกพร่อง"><span class="nav-number">!</span><span class="nav-label">ตอบกลับข้อบกพร่อง</span><span class="nav-progress">${openFindings ? `${openFindings} เปิด` : findings.length ? "ปิดครบ" : "ยังไม่มี"}</span></button>`,
+      `<button class="nav-item nav-main print-nav" data-nav-action="print-blank" data-short="พิมพ์ฟอร์ม"><span class="nav-number">▤</span><span class="nav-label">พิมพ์ฟอร์มเปล่า</span><span class="nav-progress">พร้อมพิมพ์</span></button>`,
       `<button class="nav-item nav-main admin-nav ${currentStep === "admin" ? "active" : ""}" data-step="admin" data-short="Admin"><span class="nav-number">${isAdmin ? "⚙" : "▣"}</span><span class="nav-label">ผู้ดูแลระบบ</span><span class="nav-progress">${isAdmin ? "เข้าใช้งาน" : "ล็อก"}</span></button>`,
     ];
     sections.forEach((section) => {
@@ -287,18 +325,19 @@
 
   function entryStats(entry) {
     const responses = entry.responses || {};
+    const entryItems = itemsForType(entry.meta?.auditType || "production");
     const counts = { comply: 0, observe: 0, minor: 0, major: 0 };
     let answered = 0;
     let score = 0;
     const entryProfile = PROFILES[entry.scoringProfile] || PROFILES.pd;
-    allItems.forEach((item) => {
+    entryItems.forEach((item) => {
       const rating = responses[item.id]?.rating;
       if (!rating) return;
       answered += 1;
       counts[rating] += 1;
       score += entryProfile[rating];
     });
-    return { answered, counts, percent: answered ? (score / (answered * 2)) * 100 : null };
+    return { answered, total: entryItems.length, counts, percent: answered ? (score / (answered * 2)) * 100 : null };
   }
 
   async function renderDashboard() {
@@ -316,13 +355,18 @@
         <div class="dashboard-hero-actions">
           <button type="button" class="dashboard-action audit-action" data-dashboard-action="audit">
             <span class="dashboard-action-icon" aria-hidden="true">✎</span>
-            <span class="dashboard-action-copy"><strong>กรอกแบบตรวจ</strong><small>${stats.answered ? `ทำต่อจาก ${stats.answered}/${stats.total} ข้อ` : "เริ่มการตรวจประเมิน"}</small></span>
+            <span class="dashboard-action-copy"><strong>กรอกแบบตรวจ</strong><small>${auditTypeLabel(audit.meta.auditType)} · ${stats.answered ? `ทำต่อจาก ${stats.answered}/${stats.total} ข้อ` : "เริ่มการตรวจประเมิน"}</small></span>
             <span class="dashboard-action-arrow" aria-hidden="true">→</span>
           </button>
           <button type="button" class="dashboard-action defect-action ${openFindings.length ? "has-findings" : ""}" data-dashboard-action="defects">
             <span class="dashboard-action-icon" aria-hidden="true">!</span>
             <span class="dashboard-action-copy"><strong>ตอบกลับข้อบกพร่อง</strong><small>${openFindings.length ? `${openFindings.length} รายการรอดำเนินการ` : "ยังไม่มีรายการเปิด"}</small></span>
             ${openFindings.length ? `<span class="dashboard-action-count" aria-label="${openFindings.length} รายการ">${openFindings.length}</span>` : `<span class="dashboard-action-arrow" aria-hidden="true">→</span>`}
+          </button>
+          <button type="button" class="dashboard-action print-action" data-dashboard-action="print-blank">
+            <span class="dashboard-action-icon" aria-hidden="true">▤</span>
+            <span class="dashboard-action-copy"><strong>พิมพ์ฟอร์มเปล่า</strong><small>สำหรับกรอกผลการตรวจบนกระดาษ</small></span>
+            <span class="dashboard-action-arrow" aria-hidden="true">→</span>
           </button>
         </div>
       </section>
@@ -352,7 +396,7 @@
       $("dashboardRecent").innerHTML = recent.length ? recent.map((entry) => {
         const entrySummary = entryStats(entry);
         const entryFindings = entrySummary.counts.major + entrySummary.counts.minor + entrySummary.counts.observe;
-        return `<button type="button" class="recent-audit ${entry.id === audit.id ? "active" : ""}" data-audit-id="${escapeHtml(entry.id)}"><span class="recent-date">${escapeHtml(formatDate(entry.meta?.auditDate))}</span><span><b>${escapeHtml(entry.meta?.area || "ยังไม่ระบุพื้นที่")}</b><small>${escapeHtml(entry.meta?.site || "ยังไม่ระบุ Site")} · ${escapeHtml(entry.meta?.department || "—")} · ${entrySummary.answered}/${allItems.length} ข้อ</small></span><span class="recent-result"><b>${displayPercent(entrySummary.percent)}${entrySummary.percent === null ? "" : "%"}</b><small>${entryFindings} ข้อพบ</small></span></button>`;
+        return `<button type="button" class="recent-audit ${entry.id === audit.id ? "active" : ""}" data-audit-id="${escapeHtml(entry.id)}"><span class="recent-date">${escapeHtml(formatDate(entry.meta?.auditDate))}</span><span><b>${escapeHtml(entry.meta?.area || "ยังไม่ระบุพื้นที่")}</b><small>${escapeHtml(auditTypeLabel(entry.meta?.auditType))} · ${escapeHtml(entry.meta?.site || "ยังไม่ระบุ Site")} · ${escapeHtml(entry.meta?.department || "—")} · ${entrySummary.answered}/${entrySummary.total} ข้อ</small></span><span class="recent-result"><b>${displayPercent(entrySummary.percent)}${entrySummary.percent === null ? "" : "%"}</b><small>${entryFindings} ข้อพบ</small></span></button>`;
       }).join("") : `<div class="dashboard-empty compact">ยังไม่มีแบบตรวจ</div>`;
     } catch (error) {
       console.error(error);
@@ -388,7 +432,7 @@
             <label class="field"><span>สถานะ</span><select data-corrective="actionStatus">${Object.entries(ACTION_STATUS_LABELS).map(([value, label]) => `<option value="${value}" ${response.actionStatus === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>
             <label class="field full"><span>การแก้ไขและป้องกันการเกิดซ้ำ</span><textarea data-corrective="correctiveAction" placeholder="อธิบายสิ่งที่ดำเนินการแก้ไข...">${escapeHtml(response.correctiveAction)}</textarea></label>
           </div>
-          <div class="closure-attachments"><div><span>รูปหลังแก้ไข</span><small>แนบรูปเพื่อยืนยันผลการดำเนินการ</small></div><div class="attachment-row"><label class="attach-button">＋ แนบรูปหลังแก้ไข<input type="file" accept="image/*" capture="environment" data-closure-photo /></label>${(response.closurePhotos || []).map((photo, index) => `<span class="photo-wrap"><img class="photo-thumb" src="${escapeHtml(photo)}" alt="รูปหลังแก้ไขข้อ ${item.id}" /><button type="button" class="photo-remove" data-closure-remove="${index}" aria-label="ลบรูปหลังแก้ไข">×</button></span>`).join("")}</div></div>
+          <div class="closure-attachments"><div><span>รูปหลังแก้ไข</span><small>ถ่ายรูปใหม่ หรือเลือกรูปที่มีอยู่ในเครื่องเพื่อยืนยันผลการดำเนินการ</small></div><div class="attachment-row"><label class="attach-button camera-button">📷 ถ่ายรูปหลังแก้ไข<input type="file" accept="image/*" capture="environment" data-closure-photo /></label><label class="attach-button file-button">🖼 เลือกรูปจากเครื่อง/ไฟล์<input type="file" accept="image/*" multiple data-closure-photo-file /></label>${(response.closurePhotos || []).map((photo, index) => `<span class="photo-wrap"><img class="photo-thumb" src="${escapeHtml(photo)}" alt="รูปหลังแก้ไขข้อ ${item.id}" /><button type="button" class="photo-remove" data-closure-remove="${index}" aria-label="ลบรูปหลังแก้ไข">×</button></span>`).join("")}</div></div>
         </article>`;
       }).join("")}</div>` : `<div class="dashboard-empty defect-empty"><div class="empty-icon">✓</div><h3>ยังไม่มีข้อบกพร่องที่ต้องตอบกลับ</h3><p>เมื่อเลือกระดับ Observe, Minor หรือ Major ในแบบตรวจ รายการจะแสดงที่หน้านี้อัตโนมัติ</p><button type="button" class="button primary" data-defect-action="audit">ไปกรอกแบบตรวจ</button></div>`}`;
   }
@@ -400,9 +444,9 @@
     return hex === ADMIN_HASH;
   }
 
-  function nextItemId(section) {
+  function nextItemId(section, type = adminChecklistType) {
     let sequence = 1;
-    const used = new Set(allItems.map((item) => item.id));
+    const used = new Set(itemsForType(type).map((item) => item.id));
     while (used.has(`${section.id}.${sequence}`)) sequence += 1;
     return `${section.id}.${sequence}`;
   }
@@ -418,7 +462,9 @@
       return;
     }
     const audits = await listAudits();
-    const findingsTotal = audits.reduce((sum, entry) => sum + allItems.filter((item) => FINDING_RULES[entry.responses?.[item.id]?.rating]).length, 0);
+    const adminSections = sectionsForType(adminChecklistType);
+    const adminItems = itemsForType(adminChecklistType);
+    const findingsTotal = audits.reduce((sum, entry) => sum + itemsForType(entry.meta?.auditType).filter((item) => FINDING_RULES[entry.responses?.[item.id]?.rating]).length, 0);
     let storageText = "กำลังคำนวณ";
     try {
       const estimate = await navigator.storage?.estimate?.();
@@ -426,11 +472,12 @@
     } catch (error) { console.error(error); }
     if (currentStep !== "admin") return;
     els.adminView.innerHTML = `<div class="admin-heading"><div><span class="eyebrow">Administration</span><h2>ระบบหลังบ้าน</h2><p>จัดการ Checklist และข้อมูลแบบตรวจที่บันทึกบนอุปกรณ์นี้</p></div><button type="button" class="button secondary" data-admin-action="logout">ออกจากระบบ Admin</button></div>
-      <section class="admin-metrics"><article><span>หมวดตรวจ</span><strong>${sections.length}</strong></article><article><span>คำถามทั้งหมด</span><strong>${allItems.length}</strong></article><article><span>แบบตรวจ</span><strong>${audits.length}</strong></article><article><span>ข้อบกพร่อง</span><strong>${findingsTotal}</strong></article><article><span>พื้นที่จัดเก็บ</span><strong>${storageText}</strong></article></section>
-      <section class="admin-toolbar"><div><h3>จัดการคำถาม</h3><p>แก้ข้อความ เพิ่ม หรือลบคำถามได้ทันที</p></div><div><button type="button" class="button secondary" data-admin-action="export">สำรองข้อมูลระบบ</button><button type="button" class="button secondary" data-admin-action="reset">คืนคำถามเริ่มต้น</button><button type="button" class="button primary" data-admin-action="add-section">+ เพิ่มหมวด</button></div></section>
+      <section class="admin-metrics"><article><span>หมวดตรวจ</span><strong>${adminSections.length}</strong></article><article><span>คำถามชุดนี้</span><strong>${adminItems.length}</strong></article><article><span>แบบตรวจ</span><strong>${audits.length}</strong></article><article><span>ข้อบกพร่อง</span><strong>${findingsTotal}</strong></article><article><span>พื้นที่จัดเก็บ</span><strong>${storageText}</strong></article></section>
+      <section class="admin-checklist-picker"><label class="field"><span>เลือกชุดคำถามที่ต้องการจัดการ</span><select data-admin-checklist-type>${Object.entries(checklistSets).map(([type, checklist]) => `<option value="${escapeHtml(type)}" ${adminChecklistType === type ? "selected" : ""}>${escapeHtml(checklist.label)} · ${itemsForType(type).length} ข้อ</option>`).join("")}</select></label></section>
+      <section class="admin-toolbar"><div><h3>จัดการคำถาม · ${escapeHtml(auditTypeLabel(adminChecklistType))}</h3><p>แก้ข้อความ เพิ่ม หรือลบคำถามในชุดที่เลือกได้ทันที</p></div><div><button type="button" class="button secondary" data-admin-action="export">สำรองข้อมูลระบบ</button><button type="button" class="button secondary" data-admin-action="reset">คืนคำถามเริ่มต้น</button><button type="button" class="button primary" data-admin-action="add-section">+ เพิ่มหมวด</button></div></section>
       <section class="admin-master-card"><div class="card-heading"><div><span class="eyebrow">Master data</span><h3>ตัวเลือกข้อมูลการตรวจประเมิน</h3><p>รายการเหล่านี้จะแสดงเป็น Dropdown ในหน้ากรอกข้อมูลการตรวจ</p></div></div><div class="admin-master-grid">${Object.keys(MASTER_LABELS).map((key) => `<section data-master-key="${key}"><header><h4>${MASTER_LABELS[key]}</h4><button type="button" data-admin-action="add-master">+ เพิ่ม</button></header><div>${masterData[key].map((value, index) => `<label data-master-index="${index}"><input data-master-value value="${escapeHtml(value)}" aria-label="${MASTER_LABELS[key]} ${index + 1}" /><button type="button" class="admin-delete-button" data-admin-action="delete-master">ลบ</button></label>`).join("")}</div></section>`).join("")}</div></section>
-      <div class="admin-section-list">${sections.map((section, sectionIndex) => `<section class="admin-section" data-admin-section="${sectionIndex}"><header><label class="field"><span>ชื่อหมวด ${section.id}</span><input data-section-title value="${escapeHtml(section.title)}" /></label><div><b>${section.items.length} คำถาม</b><button type="button" class="admin-delete-button" data-admin-action="delete-section">ลบหมวด</button></div></header><div class="admin-question-list">${section.items.map((item, itemIndex) => `<article class="admin-question" data-admin-item="${itemIndex}"><span class="item-code">${escapeHtml(item.id)}</span><textarea data-question-text aria-label="คำถาม ${escapeHtml(item.id)}">${escapeHtml(item.text)}</textarea><button type="button" class="admin-delete-button" data-admin-action="delete-question">ลบ</button></article>`).join("")}</div><button type="button" class="admin-add-question" data-admin-action="add-question">+ เพิ่มคำถามในหมวดนี้</button></section>`).join("")}</div>
-      <section class="admin-data-card"><div class="card-heading"><div><span class="eyebrow">Audit data</span><h3>ข้อมูลแบบตรวจบนอุปกรณ์</h3></div></div><div class="admin-audit-list">${audits.length ? audits.map((entry) => { const stats = entryStats(entry); return `<article data-admin-audit="${escapeHtml(entry.id)}"><div><b>${escapeHtml(entry.meta?.area || "ยังไม่ระบุพื้นที่")}</b><span>${escapeHtml(entry.meta?.site || "ยังไม่ระบุ Site")} · ${escapeHtml(entry.meta?.department || "—")} · ${escapeHtml(formatDate(entry.meta?.auditDate))}</span></div><div><strong>${stats.answered}/${allItems.length}</strong><span>${entry.status === "complete" ? "เสร็จสิ้น" : "ฉบับร่าง"}</span></div><button type="button" class="admin-delete-button" data-admin-action="delete-audit">ลบข้อมูล</button></article>`; }).join("") : `<div class="dashboard-empty compact">ยังไม่มีข้อมูลแบบตรวจ</div>`}</div></section>`;
+      <div class="admin-section-list">${adminSections.map((section, sectionIndex) => `<section class="admin-section" data-admin-section="${sectionIndex}"><header><label class="field"><span>ชื่อหมวด ${section.id}</span><input data-section-title value="${escapeHtml(section.title)}" /></label><div><b>${section.items.length} คำถาม</b><button type="button" class="admin-delete-button" data-admin-action="delete-section">ลบหมวด</button></div></header><div class="admin-question-list">${section.items.map((item, itemIndex) => `<article class="admin-question" data-admin-item="${itemIndex}"><span class="item-code">${escapeHtml(item.id)}</span><textarea data-question-text aria-label="คำถาม ${escapeHtml(item.id)}">${escapeHtml(item.text)}</textarea><button type="button" class="admin-delete-button" data-admin-action="delete-question">ลบ</button></article>`).join("")}</div><button type="button" class="admin-add-question" data-admin-action="add-question">+ เพิ่มคำถามในหมวดนี้</button></section>`).join("")}</div>
+      <section class="admin-data-card"><div class="card-heading"><div><span class="eyebrow">Audit data</span><h3>ข้อมูลแบบตรวจบนอุปกรณ์</h3></div></div><div class="admin-audit-list">${audits.length ? audits.map((entry) => { const stats = entryStats(entry); return `<article data-admin-audit="${escapeHtml(entry.id)}"><div><b>${escapeHtml(entry.meta?.area || "ยังไม่ระบุพื้นที่")}</b><span>${escapeHtml(auditTypeLabel(entry.meta?.auditType))} · ${escapeHtml(entry.meta?.site || "ยังไม่ระบุ Site")} · ${escapeHtml(entry.meta?.department || "—")} · ${escapeHtml(formatDate(entry.meta?.auditDate))}</span></div><div><strong>${stats.answered}/${stats.total}</strong><span>${entry.status === "complete" ? "เสร็จสิ้น" : "ฉบับร่าง"}</span></div><button type="button" class="admin-delete-button" data-admin-action="delete-audit">ลบข้อมูล</button></article>`; }).join("") : `<div class="dashboard-empty compact">ยังไม่มีข้อมูลแบบตรวจ</div>`}</div></section>`;
   }
 
   function invalidateSectionConfirmation(sectionId) {
@@ -480,6 +527,7 @@
       <div class="form-card">
         <h3>ข้อมูลการตรวจประเมิน</h3>
         <div class="form-grid">
+          <label class="field full audit-type-field"><span>ประเภทแบบตรวจ</span><select data-audit-type>${Object.entries(checklistSets).map(([type, checklist]) => `<option value="${escapeHtml(type)}" ${audit.meta.auditType === type ? "selected" : ""}>${escapeHtml(checklist.label)}</option>`).join("")}</select><small>เมื่อเลือกประเภท ระบบจะแสดงชุดคำถามที่ตรงกับพื้นที่ตรวจโดยอัตโนมัติ</small></label>
           <label class="field full"><span>ชื่อแบบตรวจ</span><input data-meta="title" value="${escapeHtml(audit.meta.title)}" /></label>
           <label class="field"><span>Site / สถานที่ตั้ง</span><select data-meta="site">${selectOptions(masterData.sites, audit.meta.site || "", "เลือก Site")}</select></label>
           <label class="field"><span>แผนก</span><select data-meta="department">${selectOptions(masterData.departments, audit.meta.department || "", "เลือกแผนก")}</select></label>
@@ -494,6 +542,25 @@
           <button class="button primary" id="startAuditButton" type="button">เริ่มทำแบบตรวจ →</button>
         </div>
       </div>`;
+    els.metaView.querySelector("[data-audit-type]").addEventListener("change", async (event) => {
+      const nextType = event.target.value;
+      const previousType = audit.meta.auditType || "production";
+      if (nextType === previousType || !checklistSets[nextType]) return;
+      const hasProgress = Object.values(audit.responses || {}).some((response) => response?.rating || response?.note || response?.photos?.length || response?.correctiveAction || response?.closurePhotos?.length);
+      if (hasProgress && !confirm(`เปลี่ยนจากแบบตรวจ ${auditTypeLabel(previousType)} เป็น ${auditTypeLabel(nextType)} หรือไม่? คำตอบและรูปแนบเดิมในแบบตรวจนี้จะถูกล้าง`)) {
+        event.target.value = previousType;
+        return;
+      }
+      audit.meta.auditType = nextType;
+      activateChecklist(nextType);
+      audit.responses = {};
+      allItems.forEach((item) => responseFor(item.id));
+      audit.sectionConfirmations = {};
+      audit.status = "draft";
+      await saveNow();
+      updateAll();
+      showToast(`เปลี่ยนเป็นแบบตรวจ ${auditTypeLabel(nextType)} · ${allItems.length} ข้อ`);
+    });
     els.metaView.querySelectorAll("[data-meta]").forEach((input) => {
       input.addEventListener("input", () => {
         audit.meta[input.dataset.meta] = input.value;
@@ -543,7 +610,8 @@
             <textarea data-note placeholder="ระบุสิ่งที่พบ ตำแหน่ง และผู้รับผิดชอบ...">${escapeHtml(response.note)}</textarea>
           </label>
           <div class="attachment-row">
-            <label class="attach-button">＋ แนบรูป<input type="file" accept="image/*" capture="environment" data-photo /></label>
+            <label class="attach-button camera-button">📷 ถ่ายรูป<input type="file" accept="image/*" capture="environment" data-photo /></label>
+            <label class="attach-button file-button">🖼 เลือกรูปจากเครื่อง/ไฟล์<input type="file" accept="image/*" multiple data-photo-file /></label>
             ${(response.photos || []).map((photo, index) => `<span class="photo-wrap"><img class="photo-thumb" src="${photo}" alt="รูปแนบข้อ ${item.id}" /><button type="button" class="photo-remove" data-photo-remove="${index}" aria-label="ลบรูป">×</button></span>`).join("")}
           </div>
         </div>
@@ -632,7 +700,8 @@
 
   function safeFilename(extension) {
     const area = (audit.meta.area || "GHP-Audit").replace(/[\\/:*?"<>|]+/g, "-").trim();
-    return `GHP-${area}-${audit.meta.auditDate || today()}.${extension}`;
+    const type = auditTypeLabel(audit.meta.auditType).replace(/[\\/:*?"<>|]+/g, "-").trim();
+    return `GHP-${type}-${area}-${audit.meta.auditDate || today()}.${extension}`;
   }
   function downloadBlob(content, filename, type) {
     const blob = new Blob([content], { type });
@@ -647,6 +716,7 @@
   function exportCsv() {
     const rows = [
       ["KCG GHP Audit Report"],
+      ["ประเภทแบบตรวจ", auditTypeLabel(audit.meta.auditType)],
       ["Site", audit.meta.site || "", "แผนก", audit.meta.department, "พื้นที่", audit.meta.area],
       ["วันที่ตรวจ", audit.meta.auditDate, "Auditor", audit.meta.auditor, "Auditee", audit.meta.auditee],
       [],
@@ -665,7 +735,35 @@
     downloadBlob(JSON.stringify({ schemaVersion: 1, exportedAt: new Date().toISOString(), audit }, null, 2), safeFilename("json"), "application/json;charset=utf-8");
     showToast("ดาวน์โหลดไฟล์สำรองแล้ว");
   }
+  function prepareBlankPrint() {
+    els.printReport.className = "print-report blank-print-report";
+    els.printReport.innerHTML = `
+      <header class="print-header blank-print-header">
+        <h1>KCG GHP Audit Report</h1>
+        <div>KCG Corporation Public Company Limited · Quality System Dept.</div>
+        <h2>${escapeHtml(DEFAULT_AUDIT_TITLE)}</h2>
+        <p>แบบฟอร์มเปล่าสำหรับบันทึกผลการตรวจประเมิน · ${escapeHtml(auditTypeLabel(audit.meta.auditType))}</p>
+      </header>
+      <div class="print-meta blank-print-meta">
+        <div><span>ประเภทแบบตรวจ</span><b>${escapeHtml(auditTypeLabel(audit.meta.auditType))}</b></div>
+        <div><span>Site / สถานที่ตั้ง</span><div class="blank-line"></div></div>
+        <div><span>แผนก</span><div class="blank-line"></div></div>
+        <div><span>พื้นที่ตรวจ</span><div class="blank-line"></div></div>
+        <div><span>ประจำเดือน</span><div class="blank-line"></div></div>
+        <div><span>วันที่ตรวจ</span><div class="blank-line"></div></div>
+        <div><span>Auditor / ผู้ตรวจ</span><div class="blank-line"></div></div>
+        <div><span>Auditee / ผู้รับการตรวจ</span><div class="blank-line"></div></div>
+      </div>
+      <div class="blank-print-instruction"><b>วิธีบันทึกผล:</b> ทำเครื่องหมาย ✓ เพียงหนึ่งช่องต่อข้อ และระบุรายละเอียดในช่องข้อค้นพบเมื่อเลือก Observe, Minor หรือ Major · เกณฑ์ผ่าน ${PASS_THRESHOLD}%</div>
+      <h2 class="print-checklist-heading">รายการตรวจประเมิน GHP (${allItems.length} ข้อ)</h2>
+      ${sections.map((section) => `<section class="print-section blank-print-section"><h2>${escapeHtml(section.title)}</h2><table class="print-table blank-print-table"><thead><tr><th class="print-code">ข้อ</th><th>สิ่งที่ต้องตรวจสอบ</th>${Object.values(RATING_LABELS).map((label) => `<th class="blank-rating">${label}</th>`).join("")}<th class="blank-note">ข้อค้นพบ / หมายเหตุ</th></tr></thead><tbody>${section.items.map((item) => `<tr><td class="blank-code">${escapeHtml(item.id)}</td><td>${escapeHtml(item.text).replace(/\n/g,"<br>")}</td>${Object.keys(RATING_LABELS).map(() => `<td class="blank-check">□</td>`).join("")}<td class="blank-note-cell">&nbsp;</td></tr>`).join("")}</tbody></table></section>`).join("")}
+      <footer class="blank-signatures">
+        <div><span>ลงชื่อผู้ตรวจ (Auditor)</span><i></i><small>วันที่</small><i class="date-line"></i></div>
+        <div><span>ลงชื่อผู้รับการตรวจ (Auditee)</span><i></i><small>วันที่</small><i class="date-line"></i></div>
+      </footer>`;
+  }
   async function preparePrint() {
+    els.printReport.className = "print-report";
     const stats = getStats();
     const result = stats.answered === stats.total ? (stats.percent >= PASS_THRESHOLD ? "ผ่าน" : "ไม่ผ่าน") : "ยังไม่ครบ";
     const findings = getFindings();
@@ -695,6 +793,7 @@
     els.printReport.innerHTML = `
       <header class="print-header"><h1>KCG GHP Audit Report</h1><div>KCG Corporation Public Company Limited · Quality System Dept.</div></header>
       <div class="print-meta">
+        <div><span>ประเภทแบบตรวจ</span><br><b>${escapeHtml(auditTypeLabel(audit.meta.auditType))}</b></div>
         <div><span>Site</span><br><b>${escapeHtml(audit.meta.site || "—")}</b></div>
         <div><span>แผนก</span><br><b>${escapeHtml(audit.meta.department)}</b></div>
         <div><span>พื้นที่</span><br><b>${escapeHtml(audit.meta.area)}</b></div>
@@ -717,8 +816,8 @@
   async function showHistory() {
     const audits = await listAudits();
     els.historyList.innerHTML = audits.length ? audits.map((entry) => {
-      const answered = allItems.filter((item) => entry.responses?.[item.id]?.rating).length;
-      return `<article class="history-item ${entry.id === audit.id ? "active" : ""}" data-history-id="${entry.id}"><div><h4>${escapeHtml(entry.meta?.area || "ยังไม่ระบุพื้นที่")} · ${escapeHtml(entry.meta?.department || "—")}</h4><p>${escapeHtml(entry.meta?.site || "ยังไม่ระบุ Site")} · ${formatDate(entry.meta?.auditDate)} · ${answered}/${allItems.length} ข้อ · ${entry.status === "complete" ? "เสร็จสิ้น" : "ฉบับร่าง"}</p></div><div class="history-actions"><button type="button" data-history-open>เปิด</button><button type="button" data-history-delete>ลบ</button></div></article>`;
+      const entrySummary = entryStats(entry);
+      return `<article class="history-item ${entry.id === audit.id ? "active" : ""}" data-history-id="${entry.id}"><div><h4>${escapeHtml(entry.meta?.area || "ยังไม่ระบุพื้นที่")} · ${escapeHtml(entry.meta?.department || "—")}</h4><p>${escapeHtml(auditTypeLabel(entry.meta?.auditType))} · ${escapeHtml(entry.meta?.site || "ยังไม่ระบุ Site")} · ${formatDate(entry.meta?.auditDate)} · ${entrySummary.answered}/${entrySummary.total} ข้อ · ${entry.status === "complete" ? "เสร็จสิ้น" : "ฉบับร่าง"}</p></div><div class="history-actions"><button type="button" data-history-open>เปิด</button><button type="button" data-history-delete>ลบ</button></div></article>`;
     }).join("") : `<div class="history-empty">ยังไม่มีแบบตรวจที่บันทึกไว้</div>`;
     els.historyDialog.showModal();
   }
@@ -753,6 +852,12 @@
 
   function bindEvents() {
     els.sectionNav.addEventListener("click", (event) => {
+      const navAction = event.target.closest("[data-nav-action]")?.dataset.navAction;
+      if (navAction === "print-blank") {
+        prepareBlankPrint();
+        window.print();
+        return;
+      }
       const button = event.target.closest("[data-step]");
       if (button) navigate(button.dataset.step);
     });
@@ -762,9 +867,11 @@
       if (action === "audit") navigate("meta");
       if (action === "defects") navigate("defects");
       if (action === "history") showHistory();
+      if (action === "print-blank") { prepareBlankPrint(); window.print(); }
       const recent = event.target.closest("[data-audit-id]");
       if (recent && recent.dataset.auditId !== audit.id) {
         audit = normalizeAudit(await dbRequest("readonly", (store) => store.get(recent.dataset.auditId)));
+        activateAuditChecklist();
         navigate("dashboard");
         showToast("เปิดแบบตรวจแล้ว");
       }
@@ -806,19 +913,20 @@
       scheduleSave();
     });
     els.checklist.addEventListener("change", async (event) => {
-      if (!event.target.matches("[data-photo]") || !event.target.files?.[0]) return;
+      if (!event.target.matches("[data-photo], [data-photo-file]") || !event.target.files?.length) return;
       const itemId = event.target.closest(".check-item").dataset.itemId;
+      const files = [...event.target.files];
       try {
-        showToast("กำลังย่อและแนบรูป...");
-        const photo = await compressImage(event.target.files[0]);
-        responseFor(itemId).photos.push(photo);
+        showToast(`กำลังย่อและแนบรูป ${files.length} รูป...`);
+        const photos = await Promise.all(files.map(compressImage));
+        responseFor(itemId).photos.push(...photos);
         invalidateSectionConfirmation(currentStep);
         scheduleSave();
         renderChecklist();
-        showToast("แนบรูปแล้ว");
+        showToast(`แนบรูปแล้ว ${photos.length} รูป`);
       } catch (error) {
         console.error(error);
-        showToast("ไม่สามารถแนบรูปนี้ได้");
+        showToast("ไม่สามารถแนบรูปที่เลือกได้");
       }
     });
     els.defectsView.addEventListener("click", (event) => {
@@ -850,17 +958,18 @@
         if (event.target.dataset.corrective === "actionStatus") updateAll({ checklist: false });
         return;
       }
-      if (!event.target.matches("[data-closure-photo]") || !event.target.files?.[0]) return;
+      if (!event.target.matches("[data-closure-photo], [data-closure-photo-file]") || !event.target.files?.length) return;
+      const files = [...event.target.files];
       try {
-        showToast("กำลังย่อและแนบรูปหลังแก้ไข...");
-        const photo = await compressImage(event.target.files[0]);
-        responseFor(itemId).closurePhotos.push(photo);
+        showToast(`กำลังย่อและแนบรูปหลังแก้ไข ${files.length} รูป...`);
+        const photos = await Promise.all(files.map(compressImage));
+        responseFor(itemId).closurePhotos.push(...photos);
         scheduleSave();
         renderDefects();
-        showToast("แนบรูปหลังแก้ไขแล้ว");
+        showToast(`แนบรูปหลังแก้ไขแล้ว ${photos.length} รูป`);
       } catch (error) {
         console.error(error);
-        showToast("ไม่สามารถแนบรูปนี้ได้");
+        showToast("ไม่สามารถแนบรูปที่เลือกได้");
       }
     });
     els.adminView.addEventListener("submit", async (event) => {
@@ -874,9 +983,16 @@
         return;
       }
       isAdmin = true;
+      adminChecklistType = audit.meta.auditType || "production";
       sessionStorage.setItem("ghp-admin-session", "active");
       updateAll({ checklist: false });
       showToast("เข้าสู่ระบบ Admin แล้ว");
+    });
+    els.adminView.addEventListener("change", (event) => {
+      if (!isAdmin || !event.target.matches("[data-admin-checklist-type]")) return;
+      if (!checklistSets[event.target.value]) return;
+      adminChecklistType = event.target.value;
+      renderAdmin();
     });
     els.adminView.addEventListener("input", (event) => {
       if (!isAdmin) return;
@@ -891,20 +1007,21 @@
       const sectionElement = event.target.closest("[data-admin-section]");
       if (!sectionElement) return;
       const sectionIndex = Number(sectionElement.dataset.adminSection);
-      const section = sections[sectionIndex];
+      const section = sectionsForType(adminChecklistType)[sectionIndex];
       if (!section) return;
       if (event.target.matches("[data-section-title]")) section.title = event.target.value;
       if (event.target.matches("[data-question-text]")) {
         const itemIndex = Number(event.target.closest("[data-admin-item]").dataset.adminItem);
         if (section.items[itemIndex]) section.items[itemIndex].text = event.target.value;
       }
-      rebuildItems();
+      if (adminChecklistType === activeChecklistType) rebuildItems();
       scheduleChecklistSave();
     });
     els.adminView.addEventListener("click", async (event) => {
       const button = event.target.closest("[data-admin-action]");
       if (!button || !isAdmin) return;
       const action = button.dataset.adminAction;
+      const editableSections = sectionsForType(adminChecklistType);
       if (action === "logout") {
         isAdmin = false;
         sessionStorage.removeItem("ghp-admin-session");
@@ -914,26 +1031,26 @@
       }
       if (action === "export") {
         const audits = await listAudits();
-        const payload = { schemaVersion: 2, exportedAt: new Date().toISOString(), checklist: sections, masterData, audits };
+        const payload = { schemaVersion: 3, exportedAt: new Date().toISOString(), checklists: checklistSets, masterData, audits };
         downloadBlob(JSON.stringify(payload, null, 2), `KCG-GHP-System-Backup-${today()}.json`, "application/json;charset=utf-8");
         showToast("ดาวน์โหลดข้อมูลระบบแล้ว");
         return;
       }
       if (action === "reset") {
         if (!confirm("คืนคำถามและตัวเลือกข้อมูลทั้งหมดเป็นค่าเริ่มต้นหรือไม่? ข้อมูลคำตอบเดิมจะยังคงอยู่")) return;
-        sections = JSON.parse(JSON.stringify(DEFAULT_SECTIONS));
+        checklistSets = JSON.parse(JSON.stringify(DEFAULT_CHECKLISTS));
         masterData = JSON.parse(JSON.stringify(DEFAULT_MASTER_DATA));
-        rebuildItems();
+        activateAuditChecklist();
         await saveChecklistSettings();
         updateAll({ checklist: false });
         showToast("คืนคำถามเริ่มต้นแล้ว");
         return;
       }
       if (action === "add-section") {
-        const numericIds = sections.map((section) => Number(section.id)).filter(Number.isFinite);
+        const numericIds = editableSections.map((section) => Number(section.id)).filter(Number.isFinite);
         const id = String((numericIds.length ? Math.max(...numericIds) : 0) + 1);
-        sections.push({ id, title: `${id}. หมวดใหม่`, weight: 2, items: [{ id: `${id}.1`, text: "คำถามใหม่" }] });
-        rebuildItems();
+        editableSections.push({ id, title: `${id}. หมวดใหม่`, weight: 2, items: [{ id: `${id}.1`, text: "คำถามใหม่" }] });
+        if (adminChecklistType === activeChecklistType) rebuildItems();
         await saveChecklistSettings();
         updateAll({ checklist: false });
         showToast(`เพิ่มหมวด ${id} แล้ว`);
@@ -960,14 +1077,18 @@
       }
       const sectionElement = button.closest("[data-admin-section]");
       const sectionIndex = Number(sectionElement?.dataset.adminSection);
-      const section = sections[sectionIndex];
+      const section = editableSections[sectionIndex];
       if (action === "add-question" && section) {
-        const id = nextItemId(section);
+        const id = nextItemId(section, adminChecklistType);
         section.items.push({ id, text: "คำถามใหม่" });
         section.weight = section.items.length * 2;
-        rebuildItems();
-        responseFor(id);
-        await Promise.all([saveChecklistSettings(), saveNow()]);
+        if (adminChecklistType === activeChecklistType) {
+          rebuildItems();
+          responseFor(id);
+          await Promise.all([saveChecklistSettings(), saveNow()]);
+        } else {
+          await saveChecklistSettings();
+        }
         updateAll({ checklist: false });
         showToast(`เพิ่มคำถาม ${id} แล้ว`);
         return;
@@ -978,7 +1099,7 @@
         if (!item || !confirm(`ลบคำถาม ${item.id} ออกจาก Checklist หรือไม่?`)) return;
         section.items.splice(itemIndex, 1);
         section.weight = section.items.length * 2;
-        rebuildItems();
+        if (adminChecklistType === activeChecklistType) rebuildItems();
         await saveChecklistSettings();
         updateAll({ checklist: false });
         showToast(`ลบคำถาม ${item.id} แล้ว`);
@@ -986,8 +1107,8 @@
       }
       if (action === "delete-section" && section) {
         if (!confirm(`ลบหมวด ${section.id} และคำถามทั้งหมดในหมวดนี้หรือไม่?`)) return;
-        sections.splice(sectionIndex, 1);
-        rebuildItems();
+        editableSections.splice(sectionIndex, 1);
+        if (adminChecklistType === activeChecklistType) rebuildItems();
         await saveChecklistSettings();
         updateAll({ checklist: false });
         showToast(`ลบหมวด ${section.id} แล้ว`);
@@ -1001,6 +1122,7 @@
         if (audit.id === auditId) {
           const remaining = await listAudits();
           audit = remaining[0] || createAudit();
+          activateAuditChecklist();
         }
         updateAll({ checklist: false });
         showToast("ลบข้อมูลแบบตรวจแล้ว");
@@ -1044,6 +1166,7 @@
       if (!item) return;
       if (event.target.closest("[data-history-open]")) {
         audit = normalizeAudit(await dbRequest("readonly", (store) => store.get(item.dataset.historyId)));
+        activateAuditChecklist();
         els.historyDialog.close();
         navigate("dashboard");
         showToast("เปิดแบบตรวจแล้ว");
@@ -1054,6 +1177,7 @@
         if (item.dataset.historyId === audit.id) {
           const remaining = await listAudits();
           audit = remaining[0] || createAudit();
+          activateAuditChecklist();
           navigate("dashboard");
         }
         showHistory();
@@ -1061,6 +1185,7 @@
     });
     els.newAuditButton.addEventListener("click", async () => {
       audit = createAudit();
+      activateAuditChecklist();
       els.historyDialog.close();
       navigate("meta");
       showToast("สร้างแบบตรวจใหม่แล้ว");
@@ -1083,6 +1208,7 @@
       await loadChecklistSettings();
       const audits = await listAudits();
       audit = audits[0] || createAudit();
+      activateAuditChecklist();
       bindEvents();
       navigate("dashboard");
     } catch (error) {

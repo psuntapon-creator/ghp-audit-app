@@ -31,7 +31,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p _site
-          cp index.html styles.css app.js data.js manifest.webmanifest _site/
+          cp index.html styles.css app.js data.js checklist-types.js manifest.webmanifest _site/
           touch _site/.nojekyll
 
       - name: Upload Pages artifact
@@ -42,4 +42,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
