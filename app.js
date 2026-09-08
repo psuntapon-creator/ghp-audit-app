@@ -9,14 +9,28 @@
     departments: ["PD4"],
     areas: ["Dairy filling"],
   };
+  const THEPHARAK_SITE = "โรงงานเทพารักษ์";
+  const DEFAULT_ZONE_LOCATIONS = {
+    "Zone 1": ["คลังอาคาร 1 : คลัง Chill", "คลังอาคาร 1 : คลัง Air"],
+    "Zone 2": ["แผนกวิศวกรรม"],
+    "Zone 3": ["ไลน์ Processed Cheese ชั้น 1", "ไลน์ Processed Cheese ชั้น M", "ไลน์ Processed Cheese A3", "ห้อง Allergen/Non-Allergen อาคาร 4"],
+    "Zone 4": ["ไลน์ Butter/Margarine", "Tank น้ำมัน", "ห้อง Allergen/Non-Allergen อาคาร 3"],
+    "Zone 5": ["ไลน์ Processed Cheese ชั้น 2", "C9", "C10", "Blast Chill"],
+    "Zone 6": ["ไลน์ Natural Cheese"],
+    "Zone 7": ["คลังสินค้าอาคาร 4 : C6", "อาคาร 2 : A1", "อาคาร 4 ข้าง Bulk Gas", "อาคารโรงอาหารชั้น 3", "อาคารโรงอาหารชั้น 4"],
+    "Zone 8": ["ทางเดินไปโรงอาหาร", "โรงอาหาร", "ห้องซักรีด", "ห้องน้ำผลิตอาคาร 2", "ห้องน้ำผลิตอาคาร 4"],
+    "Zone 9": ["คลังอาคาร 2 คลัง PK", "ห้องเก็บกลิ่นสี", "คลังเก็บสารเคมี"],
+    "Zone 10": ["ลานโหลดรถเล็ก & รถใหญ่", "รถขนส่งและลานจอดรถขนส่ง"],
+  };
   const DEFAULT_AUDIT_TITLE = "แบบการตรวจประเมิน GHP เขตพื้นที่การผลิตและคลังสินค้า";
   const LEGACY_AUDIT_TITLES = new Set(["การตรวจประเมิน GHP เขตพื้นที่การผลิต"]);
-  const MASTER_LABELS = { sites: "Site / สถานที่ตั้ง", departments: "แผนก", areas: "พื้นที่ตรวจ" };
+  const MASTER_LABELS = { sites: "Site / สถานที่ตั้ง", departments: "แผนก (Site อื่น)", areas: "พื้นที่ตรวจ (Site อื่น)" };
   let checklistSets = JSON.parse(JSON.stringify(DEFAULT_CHECKLISTS));
   let activeChecklistType = "production";
   let adminChecklistType = "production";
   let sections = checklistSets.production.sections;
   let masterData = JSON.parse(JSON.stringify(DEFAULT_MASTER_DATA));
+  let zoneLocations = JSON.parse(JSON.stringify(DEFAULT_ZONE_LOCATIONS));
   let allItems = [];
   const PASS_THRESHOLD = 87;
   const PROFILES = {
@@ -79,6 +93,22 @@
   function selectOptions(values, selected, placeholder) {
     const unique = [...new Set([...(values || []), ...(selected && !(values || []).includes(selected) ? [selected] : [])])];
     return `<option value="">${escapeHtml(placeholder)}</option>${unique.map((value) => `<option value="${escapeHtml(value)}" ${value === selected ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}`;
+  }
+  function isThepharakSite(site = audit?.meta?.site) {
+    return site === THEPHARAK_SITE;
+  }
+  function isZone(value) {
+    return Object.prototype.hasOwnProperty.call(zoneLocations, value);
+  }
+  function allZoneLocations() {
+    return Object.values(zoneLocations).flat();
+  }
+  function departmentOptionsFor(entry = audit) {
+    return isThepharakSite(entry?.meta?.site) ? Object.keys(zoneLocations) : masterData.departments;
+  }
+  function areaOptionsFor(entry = audit) {
+    if (!isThepharakSite(entry?.meta?.site)) return masterData.areas;
+    return zoneLocations[entry?.meta?.department] || [];
   }
   function uid() {
     return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -186,10 +216,17 @@
         if (Array.isArray(saved.masterData[key]) && saved.masterData[key].length) masterData[key] = saved.masterData[key];
       });
     }
+    if (saved?.zoneLocations && typeof saved.zoneLocations === "object") {
+      Object.keys(DEFAULT_ZONE_LOCATIONS).forEach((zone) => {
+        if (Array.isArray(saved.zoneLocations[zone])) {
+          zoneLocations[zone] = saved.zoneLocations[zone];
+        }
+      });
+    }
     activateChecklist(activeChecklistType);
   }
   async function saveChecklistSettings() {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ checklists: checklistSets, masterData, updatedAt: new Date().toISOString() }));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ checklists: checklistSets, masterData, zoneLocations, updatedAt: new Date().toISOString() }));
   }
   function scheduleChecklistSave() {
     els.saveStatus.classList.add("saving");
@@ -475,7 +512,8 @@
       <section class="admin-metrics"><article><span>หมวดตรวจ</span><strong>${adminSections.length}</strong></article><article><span>คำถามชุดนี้</span><strong>${adminItems.length}</strong></article><article><span>แบบตรวจ</span><strong>${audits.length}</strong></article><article><span>ข้อบกพร่อง</span><strong>${findingsTotal}</strong></article><article><span>พื้นที่จัดเก็บ</span><strong>${storageText}</strong></article></section>
       <section class="admin-checklist-picker"><label class="field"><span>เลือกชุดคำถามที่ต้องการจัดการ</span><select data-admin-checklist-type>${Object.entries(checklistSets).map(([type, checklist]) => `<option value="${escapeHtml(type)}" ${adminChecklistType === type ? "selected" : ""}>${escapeHtml(checklist.label)} · ${itemsForType(type).length} ข้อ</option>`).join("")}</select></label></section>
       <section class="admin-toolbar"><div><h3>จัดการคำถาม · ${escapeHtml(auditTypeLabel(adminChecklistType))}</h3><p>แก้ข้อความ เพิ่ม หรือลบคำถามในชุดที่เลือกได้ทันที</p></div><div><button type="button" class="button secondary" data-admin-action="export">สำรองข้อมูลระบบ</button><button type="button" class="button secondary" data-admin-action="reset">คืนคำถามเริ่มต้น</button><button type="button" class="button primary" data-admin-action="add-section">+ เพิ่มหมวด</button></div></section>
-      <section class="admin-master-card"><div class="card-heading"><div><span class="eyebrow">Master data</span><h3>ตัวเลือกข้อมูลการตรวจประเมิน</h3><p>รายการเหล่านี้จะแสดงเป็น Dropdown ในหน้ากรอกข้อมูลการตรวจ</p></div></div><div class="admin-master-grid">${Object.keys(MASTER_LABELS).map((key) => `<section data-master-key="${key}"><header><h4>${MASTER_LABELS[key]}</h4><button type="button" data-admin-action="add-master">+ เพิ่ม</button></header><div>${masterData[key].map((value, index) => `<label data-master-index="${index}"><input data-master-value value="${escapeHtml(value)}" aria-label="${MASTER_LABELS[key]} ${index + 1}" /><button type="button" class="admin-delete-button" data-admin-action="delete-master">ลบ</button></label>`).join("")}</div></section>`).join("")}</div></section>
+      <section class="admin-master-card"><div class="card-heading"><div><span class="eyebrow">Master data</span><h3>ตัวเลือกข้อมูลการตรวจประเมิน</h3><p>รายการ Site จะแสดงเสมอ ส่วนแผนกและพื้นที่ชุดนี้ใช้สำหรับ Site อื่นที่ไม่ใช่โรงงานเทพารักษ์</p></div></div><div class="admin-master-grid">${Object.keys(MASTER_LABELS).map((key) => `<section data-master-key="${key}"><header><h4>${MASTER_LABELS[key]}</h4><button type="button" data-admin-action="add-master">+ เพิ่ม</button></header><div>${masterData[key].map((value, index) => `<label data-master-index="${index}"><input data-master-value value="${escapeHtml(value)}" aria-label="${MASTER_LABELS[key]} ${index + 1}" /><button type="button" class="admin-delete-button" data-admin-action="delete-master">ลบ</button></label>`).join("")}</div></section>`).join("")}</div></section>
+      <section class="admin-master-card admin-zone-card"><div class="card-heading"><div><span class="eyebrow">Thepharak zones</span><h3>Zone Location · โรงงานเทพารักษ์</h3><p>แก้ไขรายการพื้นที่ตรวจที่จะแสดงหลังผู้ตรวจเลือก Zone 1–10</p></div></div><div class="admin-master-grid">${Object.entries(zoneLocations).map(([zone, locations]) => `<section data-zone-key="${escapeHtml(zone)}"><header><h4>${escapeHtml(zone)}</h4><button type="button" data-admin-action="add-zone-location">+ เพิ่ม</button></header><div>${locations.map((value, index) => `<label data-zone-index="${index}"><input data-zone-location-value value="${escapeHtml(value)}" aria-label="${escapeHtml(zone)} พื้นที่ ${index + 1}" /><button type="button" class="admin-delete-button" data-admin-action="delete-zone-location">ลบ</button></label>`).join("")}</div></section>`).join("")}</div></section>
       <div class="admin-section-list">${adminSections.map((section, sectionIndex) => `<section class="admin-section" data-admin-section="${sectionIndex}"><header><label class="field"><span>ชื่อหมวด ${section.id}</span><input data-section-title value="${escapeHtml(section.title)}" /></label><div><b>${section.items.length} คำถาม</b><button type="button" class="admin-delete-button" data-admin-action="delete-section">ลบหมวด</button></div></header><div class="admin-question-list">${section.items.map((item, itemIndex) => `<article class="admin-question" data-admin-item="${itemIndex}"><span class="item-code">${escapeHtml(item.id)}</span><textarea data-question-text aria-label="คำถาม ${escapeHtml(item.id)}">${escapeHtml(item.text)}</textarea><button type="button" class="admin-delete-button" data-admin-action="delete-question">ลบ</button></article>`).join("")}</div><button type="button" class="admin-add-question" data-admin-action="add-question">+ เพิ่มคำถามในหมวดนี้</button></section>`).join("")}</div>
       <section class="admin-data-card"><div class="card-heading"><div><span class="eyebrow">Audit data</span><h3>ข้อมูลแบบตรวจบนอุปกรณ์</h3></div></div><div class="admin-audit-list">${audits.length ? audits.map((entry) => { const stats = entryStats(entry); return `<article data-admin-audit="${escapeHtml(entry.id)}"><div><b>${escapeHtml(entry.meta?.area || "ยังไม่ระบุพื้นที่")}</b><span>${escapeHtml(auditTypeLabel(entry.meta?.auditType))} · ${escapeHtml(entry.meta?.site || "ยังไม่ระบุ Site")} · ${escapeHtml(entry.meta?.department || "—")} · ${escapeHtml(formatDate(entry.meta?.auditDate))}</span></div><div><strong>${stats.answered}/${stats.total}</strong><span>${entry.status === "complete" ? "เสร็จสิ้น" : "ฉบับร่าง"}</span></div><button type="button" class="admin-delete-button" data-admin-action="delete-audit">ลบข้อมูล</button></article>`; }).join("") : `<div class="dashboard-empty compact">ยังไม่มีข้อมูลแบบตรวจ</div>`}</div></section>`;
   }
@@ -530,8 +568,8 @@
           <label class="field full audit-type-field"><span>ประเภทแบบตรวจ</span><select data-audit-type>${Object.entries(checklistSets).map(([type, checklist]) => `<option value="${escapeHtml(type)}" ${audit.meta.auditType === type ? "selected" : ""}>${escapeHtml(checklist.label)}</option>`).join("")}</select><small>เมื่อเลือกประเภท ระบบจะแสดงชุดคำถามที่ตรงกับพื้นที่ตรวจโดยอัตโนมัติ</small></label>
           <label class="field full"><span>ชื่อแบบตรวจ</span><input data-meta="title" value="${escapeHtml(audit.meta.title)}" /></label>
           <label class="field"><span>Site / สถานที่ตั้ง</span><select data-meta="site">${selectOptions(masterData.sites, audit.meta.site || "", "เลือก Site")}</select></label>
-          <label class="field"><span>แผนก</span><select data-meta="department">${selectOptions(masterData.departments, audit.meta.department || "", "เลือกแผนก")}</select></label>
-          <label class="field"><span>พื้นที่ตรวจ</span><select data-meta="area">${selectOptions(masterData.areas, audit.meta.area || "", "เลือกพื้นที่")}</select></label>
+          <label class="field"><span>แผนก / Zone</span><select data-meta="department">${selectOptions(departmentOptionsFor(), audit.meta.department || "", isThepharakSite() ? "เลือก Zone" : "เลือกแผนก")}</select></label>
+          <label class="field"><span>Zone Location / พื้นที่ตรวจ</span><select data-meta="area" ${isThepharakSite() && !isZone(audit.meta.department) ? "disabled" : ""}>${selectOptions(areaOptionsFor(), audit.meta.area || "", isThepharakSite() ? (isZone(audit.meta.department) ? "เลือก Zone Location" : "กรุณาเลือก Zone ก่อน") : "เลือกพื้นที่")}</select></label>
           <label class="field"><span>ประจำเดือน</span><input type="month" data-meta="auditMonth" value="${escapeHtml(audit.meta.auditMonth)}" /></label>
           <label class="field"><span>วันที่ตรวจ</span><input type="date" data-meta="auditDate" value="${escapeHtml(audit.meta.auditDate)}" /></label>
           <label class="field"><span>Auditor / ผู้ตรวจ</span><input data-meta="auditor" value="${escapeHtml(audit.meta.auditor)}" placeholder="ชื่อผู้ตรวจ" /></label>
@@ -563,9 +601,23 @@
     });
     els.metaView.querySelectorAll("[data-meta]").forEach((input) => {
       input.addEventListener("input", () => {
-        audit.meta[input.dataset.meta] = input.value;
+        const key = input.dataset.meta;
+        audit.meta[key] = input.value;
+        if (key === "site") {
+          if (isThepharakSite()) {
+            if (!isZone(audit.meta.department)) audit.meta.department = "";
+            if (!areaOptionsFor().includes(audit.meta.area)) audit.meta.area = "";
+          } else {
+            if (isZone(audit.meta.department)) audit.meta.department = "";
+            if (allZoneLocations().includes(audit.meta.area)) audit.meta.area = "";
+          }
+        }
+        if (key === "department" && isThepharakSite() && !areaOptionsFor().includes(audit.meta.area)) {
+          audit.meta.area = "";
+        }
         audit.status = "draft";
         scheduleSave();
+        if (key === "site" || key === "department") updateAll({ checklist: false });
       });
     });
     $("startAuditButton").addEventListener("click", () => navigate(sections[0].id));
@@ -717,7 +769,7 @@
     const rows = [
       ["KCG GHP Audit Report"],
       ["ประเภทแบบตรวจ", auditTypeLabel(audit.meta.auditType)],
-      ["Site", audit.meta.site || "", "แผนก", audit.meta.department, "พื้นที่", audit.meta.area],
+      ["Site", audit.meta.site || "", "แผนก/Zone", audit.meta.department, "Zone Location/พื้นที่ตรวจ", audit.meta.area],
       ["วันที่ตรวจ", audit.meta.auditDate, "Auditor", audit.meta.auditor, "Auditee", audit.meta.auditee],
       [],
       ["หมวด", "ข้อ", "สิ่งที่ต้องตรวจสอบ", "ผลการตรวจ", "คะแนน", "ข้อค้นพบ", "จำนวนรูปหลักฐาน", "ผู้รับผิดชอบ", "กำหนดเสร็จ", "สถานะแก้ไข", "การแก้ไขและป้องกัน", "จำนวนรูปหลังแก้ไข"],
@@ -747,8 +799,8 @@
       <div class="print-meta blank-print-meta">
         <div><span>ประเภทแบบตรวจ</span><b>${escapeHtml(auditTypeLabel(audit.meta.auditType))}</b></div>
         <div><span>Site / สถานที่ตั้ง</span><div class="blank-line"></div></div>
-        <div><span>แผนก</span><div class="blank-line"></div></div>
-        <div><span>พื้นที่ตรวจ</span><div class="blank-line"></div></div>
+        <div><span>แผนก / Zone</span><div class="blank-line"></div></div>
+        <div><span>Zone Location / พื้นที่ตรวจ</span><div class="blank-line"></div></div>
         <div><span>ประจำเดือน</span><div class="blank-line"></div></div>
         <div><span>วันที่ตรวจ</span><div class="blank-line"></div></div>
         <div><span>Auditor / ผู้ตรวจ</span><div class="blank-line"></div></div>
@@ -795,8 +847,8 @@
       <div class="print-meta">
         <div><span>ประเภทแบบตรวจ</span><br><b>${escapeHtml(auditTypeLabel(audit.meta.auditType))}</b></div>
         <div><span>Site</span><br><b>${escapeHtml(audit.meta.site || "—")}</b></div>
-        <div><span>แผนก</span><br><b>${escapeHtml(audit.meta.department)}</b></div>
-        <div><span>พื้นที่</span><br><b>${escapeHtml(audit.meta.area)}</b></div>
+        <div><span>แผนก / Zone</span><br><b>${escapeHtml(audit.meta.department || "—")}</b></div>
+        <div><span>Zone Location / พื้นที่ตรวจ</span><br><b>${escapeHtml(audit.meta.area || "—")}</b></div>
         <div><span>วันที่ตรวจ</span><br><b>${escapeHtml(formatDate(audit.meta.auditDate))}</b></div>
         <div><span>Auditor</span><br><b>${escapeHtml(audit.meta.auditor || "—")}</b></div>
         <div><span>Auditee</span><br><b>${escapeHtml(audit.meta.auditee || "—")}</b></div>
@@ -1004,6 +1056,14 @@
         scheduleChecklistSave();
         return;
       }
+      const zoneElement = event.target.closest("[data-zone-key]");
+      if (zoneElement && event.target.matches("[data-zone-location-value]")) {
+        const zone = zoneElement.dataset.zoneKey;
+        const index = Number(event.target.closest("[data-zone-index]").dataset.zoneIndex);
+        if (zoneLocations[zone]?.[index] != null) zoneLocations[zone][index] = event.target.value;
+        scheduleChecklistSave();
+        return;
+      }
       const sectionElement = event.target.closest("[data-admin-section]");
       if (!sectionElement) return;
       const sectionIndex = Number(sectionElement.dataset.adminSection);
@@ -1031,7 +1091,7 @@
       }
       if (action === "export") {
         const audits = await listAudits();
-        const payload = { schemaVersion: 3, exportedAt: new Date().toISOString(), checklists: checklistSets, masterData, audits };
+        const payload = { schemaVersion: 4, exportedAt: new Date().toISOString(), checklists: checklistSets, masterData, zoneLocations, audits };
         downloadBlob(JSON.stringify(payload, null, 2), `KCG-GHP-System-Backup-${today()}.json`, "application/json;charset=utf-8");
         showToast("ดาวน์โหลดข้อมูลระบบแล้ว");
         return;
@@ -1040,6 +1100,7 @@
         if (!confirm("คืนคำถามและตัวเลือกข้อมูลทั้งหมดเป็นค่าเริ่มต้นหรือไม่? ข้อมูลคำตอบเดิมจะยังคงอยู่")) return;
         checklistSets = JSON.parse(JSON.stringify(DEFAULT_CHECKLISTS));
         masterData = JSON.parse(JSON.stringify(DEFAULT_MASTER_DATA));
+        zoneLocations = JSON.parse(JSON.stringify(DEFAULT_ZONE_LOCATIONS));
         activateAuditChecklist();
         await saveChecklistSettings();
         updateAll({ checklist: false });
@@ -1073,6 +1134,25 @@
         await saveChecklistSettings();
         updateAll({ checklist: false });
         showToast(`ลบตัวเลือก ${value} แล้ว`);
+        return;
+      }
+      const zoneElement = button.closest("[data-zone-key]");
+      const zoneKey = zoneElement?.dataset.zoneKey;
+      if (action === "add-zone-location" && zoneLocations[zoneKey]) {
+        zoneLocations[zoneKey].push("พื้นที่ใหม่");
+        await saveChecklistSettings();
+        updateAll({ checklist: false });
+        showToast(`เพิ่มพื้นที่ใน ${zoneKey} แล้ว`);
+        return;
+      }
+      if (action === "delete-zone-location" && zoneLocations[zoneKey]) {
+        const zoneIndex = Number(button.closest("[data-zone-index]")?.dataset.zoneIndex);
+        const value = zoneLocations[zoneKey][zoneIndex];
+        if (value == null || !confirm(`ลบพื้นที่ “${value}” ออกจาก ${zoneKey} หรือไม่?`)) return;
+        zoneLocations[zoneKey].splice(zoneIndex, 1);
+        await saveChecklistSettings();
+        updateAll({ checklist: false });
+        showToast(`ลบพื้นที่ออกจาก ${zoneKey} แล้ว`);
         return;
       }
       const sectionElement = button.closest("[data-admin-section]");
