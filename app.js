@@ -31,16 +31,30 @@
       "Zone 16": ["Engineer"],
     },
     [THEPHARAK_SITE]: {
-      "Zone 1": ["คลังอาคาร 1 : คลัง Chill", "คลังอาคาร 1 : คลัง Air"],
+      "Zone 1": ["คลังอาคาร 1 : คลัง Chill, Air"],
       "Zone 2": ["แผนกวิศวกรรม"],
-      "Zone 3": ["ไลน์ Processed Cheese ชั้น 1", "ไลน์ Processed Cheese ชั้น M", "ไลน์ Processed Cheese A3", "ห้อง Allergen/Non-Allergen อาคาร 4"],
-      "Zone 4": ["ไลน์ Butter/Margarine", "Tank น้ำมัน", "ห้อง Allergen/Non-Allergen อาคาร 3"],
-      "Zone 5": ["ไลน์ Processed Cheese ชั้น 2", "C9", "C10", "Blast Chill"],
+      "Zone 3": ["ไลน์ Processed Cheese ชั้น 1, ชั้น M, A3, ห้อง Allergen/Non-Allergen อาคาร 4"],
+      "Zone 4": ["ไลน์ Butter/Margarine, Tank น้ำมัน, ห้อง Allergen/Non-Allergen อาคาร 3"],
+      "Zone 5": ["ไลน์ Processed Cheese ชั้น 2, C9, C10, Blast Chill"],
       "Zone 6": ["ไลน์ Natural Cheese"],
-      "Zone 7": ["คลังสินค้าอาคาร 4 : C6", "อาคาร 2 : A1", "อาคาร 4 ข้าง Bulk Gas", "อาคารโรงอาหารชั้น 3", "อาคารโรงอาหารชั้น 4"],
-      "Zone 8": ["ทางเดินไปโรงอาหาร", "โรงอาหาร", "ห้องซักรีด", "ห้องน้ำผลิตอาคาร 2", "ห้องน้ำผลิตอาคาร 4"],
-      "Zone 9": ["คลังอาคาร 2 คลัง PK", "ห้องเก็บกลิ่นสี", "คลังเก็บสารเคมี"],
-      "Zone 10": ["ลานโหลดรถเล็ก & รถใหญ่", "รถขนส่งและลานจอดรถขนส่ง"],
+      "Zone 7": ["คลังสินค้าอาคาร 4 : C6, อาคาร 2 : A1, อาคาร 4 ข้าง Bulk Gas, อาคารโรงอาหารชั้น 3, 4"],
+      "Zone 8": ["ทางเดินไปโรงอาหาร, โรงอาหาร, ห้องซักรีด, ห้องน้ำผลิตอาคาร 2, 4"],
+      "Zone 9": ["คลังอาคาร 2 คลัง PK, ห้องเก็บกลิ่นสี, คลังเก็บสารเคมี"],
+      "Zone 10": ["ลานโหลดรถเล็ก & รถใหญ่, รถขนส่งและลานจอดรถขนส่ง"],
+    },
+  };
+  const SITE_ZONE_DATA_VERSION = 2;
+  const SITE_ZONE_CHECKLIST_TYPES = {
+    [BANGPHLI_SITE]: {
+      "Zone 1": "production", "Zone 2": "production", "Zone 3": "production", "Zone 4": "production",
+      "Zone 5": "production", "Zone 6": "production", "Zone 7": "production", "Zone 8": "production",
+      "Zone 9": "production", "Zone 10": "production", "Zone 11": "production", "Zone 12": "production",
+      "Zone 13": "outside", "Zone 14": "warehouse", "Zone 15": "warehouse", "Zone 16": "outside",
+    },
+    [THEPHARAK_SITE]: {
+      "Zone 1": "warehouse", "Zone 2": "outdoor", "Zone 3": "production", "Zone 4": "production",
+      "Zone 5": "production", "Zone 6": "production", "Zone 7": "warehouse", "Zone 8": "outside",
+      "Zone 9": "warehouse", "Zone 10": "outside",
     },
   };
   const DEFAULT_AUDIT_TITLE = "แบบการตรวจประเมิน GHP เขตพื้นที่การผลิตและคลังสินค้า";
@@ -139,6 +153,9 @@
   function areaOptionsFor(entry = audit) {
     if (!isZoneSite(entry?.meta?.site)) return masterData.areas;
     return zoneLocationsForSite(entry.meta.site)?.[entry.meta.department] || [];
+  }
+  function checklistTypeForZone(entry = audit) {
+    return SITE_ZONE_CHECKLIST_TYPES[entry?.meta?.site]?.[entry?.meta?.department] || null;
   }
   function uid() {
     return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -249,6 +266,7 @@
     if (saved?.siteZoneLocations && typeof saved.siteZoneLocations === "object") {
       Object.keys(DEFAULT_SITE_ZONE_LOCATIONS).forEach((site) => {
         if (!saved.siteZoneLocations[site] || typeof saved.siteZoneLocations[site] !== "object") return;
+        if (site === THEPHARAK_SITE && saved.siteZoneDataVersion !== SITE_ZONE_DATA_VERSION) return;
         Object.keys(DEFAULT_SITE_ZONE_LOCATIONS[site]).forEach((zone) => {
           if (Array.isArray(saved.siteZoneLocations[site][zone])) {
             const locations = saved.siteZoneLocations[site][zone];
@@ -266,7 +284,7 @@
     activateChecklist(activeChecklistType);
   }
   async function saveChecklistSettings() {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ checklists: checklistSets, masterData, siteZoneLocations, updatedAt: new Date().toISOString() }));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ checklists: checklistSets, masterData, siteZoneLocations, siteZoneDataVersion: SITE_ZONE_DATA_VERSION, updatedAt: new Date().toISOString() }));
   }
   function scheduleChecklistSave() {
     els.saveStatus.classList.add("saving");
@@ -317,6 +335,22 @@
     return entry;
   }
 
+  async function changeAuditChecklistType(nextType, message) {
+    const previousType = audit.meta.auditType || "production";
+    if (nextType === previousType) return true;
+    if (!checklistSets[nextType]) return false;
+    const hasProgress = Object.values(audit.responses || {}).some((response) => response?.rating || response?.note || response?.photos?.length || response?.correctiveAction || response?.closurePhotos?.length);
+    if (hasProgress && !confirm(message || `เปลี่ยนจากแบบตรวจ ${auditTypeLabel(previousType)} เป็น ${auditTypeLabel(nextType)} หรือไม่? คำตอบและรูปแนบเดิมในแบบตรวจนี้จะถูกล้าง`)) return false;
+    audit.meta.auditType = nextType;
+    activateChecklist(nextType);
+    audit.responses = {};
+    allItems.forEach((item) => responseFor(item.id));
+    audit.sectionConfirmations = {};
+    audit.status = "draft";
+    await saveNow();
+    return true;
+  }
+
   function responseFor(itemId) {
     if (!audit.responses) audit.responses = {};
     if (!audit.responses[itemId]) audit.responses[itemId] = {};
@@ -329,6 +363,7 @@
     if (!("targetDate" in response)) response.targetDate = "";
     if (!("actionStatus" in response)) response.actionStatus = "open";
     if (!Array.isArray(response.closurePhotos)) response.closurePhotos = [];
+    if (!("autoRatedFromDetail" in response)) response.autoRatedFromDetail = false;
     return response;
   }
   function profile() { return PROFILES[audit.scoringProfile] || PROFILES.pd; }
@@ -606,7 +641,7 @@
       <div class="form-card">
         <h3>ข้อมูลการตรวจประเมิน</h3>
         <div class="form-grid">
-          <label class="field full audit-type-field"><span>ประเภทแบบตรวจ</span><select data-audit-type>${Object.entries(checklistSets).map(([type, checklist]) => `<option value="${escapeHtml(type)}" ${audit.meta.auditType === type ? "selected" : ""}>${escapeHtml(checklist.label)}</option>`).join("")}</select><small>เมื่อเลือกประเภท ระบบจะแสดงชุดคำถามที่ตรงกับพื้นที่ตรวจโดยอัตโนมัติ</small></label>
+          <label class="field full audit-type-field"><span>ประเภทแบบตรวจ</span><select data-audit-type ${isZoneSite() ? "disabled" : ""}>${Object.entries(checklistSets).map(([type, checklist]) => `<option value="${escapeHtml(type)}" ${audit.meta.auditType === type ? "selected" : ""}>${escapeHtml(checklist.label)}</option>`).join("")}</select><small>${isZoneSite() ? "ระบบเลือกชุดคำถามให้อัตโนมัติตาม Zone: ไลน์ผลิต, คลังสินค้า หรือพื้นที่รอบนอก" : "เลือกประเภทเพื่อแสดงชุดคำถามที่ตรงกับพื้นที่ตรวจ"}</small></label>
           <label class="field full"><span>ชื่อแบบตรวจ</span><input data-meta="title" value="${escapeHtml(audit.meta.title)}" /></label>
           <label class="field"><span>Site / สถานที่ตั้ง</span><select data-meta="site">${selectOptions(masterData.sites, audit.meta.site || "", "เลือก Site")}</select></label>
           <label class="field"><span>แผนก / Zone</span><select data-meta="department">${selectOptions(departmentOptionsFor(), audit.meta.department || "", isZoneSite() ? "เลือก Zone" : "เลือกแผนก")}</select></label>
@@ -624,24 +659,16 @@
     els.metaView.querySelector("[data-audit-type]").addEventListener("change", async (event) => {
       const nextType = event.target.value;
       const previousType = audit.meta.auditType || "production";
-      if (nextType === previousType || !checklistSets[nextType]) return;
-      const hasProgress = Object.values(audit.responses || {}).some((response) => response?.rating || response?.note || response?.photos?.length || response?.correctiveAction || response?.closurePhotos?.length);
-      if (hasProgress && !confirm(`เปลี่ยนจากแบบตรวจ ${auditTypeLabel(previousType)} เป็น ${auditTypeLabel(nextType)} หรือไม่? คำตอบและรูปแนบเดิมในแบบตรวจนี้จะถูกล้าง`)) {
+      if (!await changeAuditChecklistType(nextType)) {
         event.target.value = previousType;
         return;
       }
-      audit.meta.auditType = nextType;
-      activateChecklist(nextType);
-      audit.responses = {};
-      allItems.forEach((item) => responseFor(item.id));
-      audit.sectionConfirmations = {};
-      audit.status = "draft";
-      await saveNow();
       updateAll();
       showToast(`เปลี่ยนเป็นแบบตรวจ ${auditTypeLabel(nextType)} · ${allItems.length} ข้อ`);
     });
     els.metaView.querySelectorAll("[data-meta]").forEach((input) => {
-      input.addEventListener("input", () => {
+      input.addEventListener("input", async () => {
+        const previousMeta = { ...audit.meta };
         const key = input.dataset.meta;
         audit.meta[key] = input.value;
         if (key === "site") {
@@ -655,6 +682,22 @@
         }
         if (key === "department" && isZoneSite() && !areaOptionsFor().includes(audit.meta.area)) {
           audit.meta.area = "";
+        }
+        if ((key === "site" || key === "department") && isZoneSite()) {
+          const linkedAreas = areaOptionsFor();
+          if (linkedAreas.length === 1) audit.meta.area = linkedAreas[0];
+        }
+        const automaticType = checklistTypeForZone();
+        if ((key === "site" || key === "department") && automaticType && automaticType !== audit.meta.auditType) {
+          const changed = await changeAuditChecklistType(automaticType, `Zone นี้ใช้แบบตรวจ ${auditTypeLabel(automaticType)} ระบบจะเปลี่ยนชุดคำถามและล้างคำตอบเดิม ต้องการดำเนินการต่อหรือไม่?`);
+          if (!changed) {
+            audit.meta = previousMeta;
+            activateAuditChecklist();
+            updateAll({ checklist: false });
+            showToast("ยกเลิกการเปลี่ยน Zone");
+            return;
+          }
+          showToast(`เลือกแบบตรวจ ${auditTypeLabel(automaticType)} อัตโนมัติ`);
         }
         audit.status = "draft";
         scheduleSave();
@@ -671,6 +714,10 @@
     const remaining = stats.total - stats.answered;
     const sectionConfirmed = Boolean(audit.sectionConfirmations?.[section.id]);
     const nextSection = sections[sections.findIndex((entry) => entry.id === section.id) + 1];
+    const unansweredWithoutFinding = section.items.filter((item) => {
+      const response = responseFor(item.id);
+      return !response.rating && !response.note.trim() && !response.photos.length;
+    }).length;
     els.sectionEyebrow.textContent = `หมวดที่ ${section.id} จาก ${sections.length}`;
     els.sectionTitle.textContent = section.title.replace(/^\d+\.\s*/, "");
     els.sectionSubtitle.textContent = `${section.items.length} ข้อ · คะแนนเต็ม ${section.items.length * 2}`;
@@ -684,9 +731,14 @@
       return matchesSearch && matchesFinding;
     });
 
-    els.checklist.innerHTML = visible.map((item) => {
+    els.checklist.innerHTML = `<section class="quick-audit-bar">
+      <div><strong>กรอกเฉพาะข้อที่พบ</strong><span>พิมพ์รายละเอียดข้อบกพร่องได้ทันที ระบบจะบันทึกเป็น Observe อัตโนมัติ แล้วสามารถเปลี่ยนเป็น Minor หรือ Major ได้</span></div>
+      <button type="button" class="button secondary" data-mark-remaining-comply ${unansweredWithoutFinding ? "" : "disabled"}>✓ ไม่พบข้อบกพร่องในรายการที่เหลือ</button>
+    </section>` + visible.map((item) => {
       const response = responseFor(item.id);
       const isFinding = response.rating && response.rating !== "comply";
+      const hasFindingDetail = Boolean(response.note.trim() || response.photos.length);
+      const showFindingPanel = !response.rating || isFinding || hasFindingDetail;
       const scoreProfile = profile();
       return `<article class="check-item" data-item-id="${item.id}">
         <div class="check-main">
@@ -698,10 +750,12 @@
             </div>
           </div>
         </div>
-        <div class="finding-panel" ${isFinding ? "" : "hidden"}>
-          <label>ข้อค้นพบ / การดำเนินการแก้ไข
+        <div class="finding-panel ${!response.rating ? "pending" : ""}" ${showFindingPanel ? "" : "hidden"}>
+          <label><span>${isFinding ? "รายละเอียดข้อบกพร่อง / สิ่งที่ตรวจพบ" : "พบข้อบกพร่อง? กรอกรายละเอียดได้ทันที"}</span>
+            <small>${isFinding ? "ระบบบันทึกข้อมูลนี้อัตโนมัติ" : "เมื่อเริ่มกรอก ระบบจะเลือกระดับ Observe ให้อัตโนมัติ"}</small>
             <textarea data-note placeholder="ระบุสิ่งที่พบ ตำแหน่ง และผู้รับผิดชอบ...">${escapeHtml(response.note)}</textarea>
           </label>
+          ${!response.rating ? `<button type="button" class="no-finding-button" data-no-finding-item>✓ ไม่พบข้อบกพร่อง — ลง Comply</button>` : ""}
           <div class="attachment-row">
             <label class="attach-button camera-button">📷 ถ่ายรูป<input type="file" accept="image/*" capture="environment" data-photo /></label>
             <label class="attach-button file-button">🖼 เลือกรูปจากเครื่อง/ไฟล์<input type="file" accept="image/*" multiple data-photo-file /></label>
@@ -714,6 +768,29 @@
       <button type="button" class="button ${sectionConfirmed ? "secondary" : "primary"}" data-confirm-section="${section.id}" ${remaining ? "disabled" : ""}>${sectionConfirmed ? "ยืนยันหมวดนี้อีกครั้ง" : `ยืนยันหมวด ${section.id}`} ${nextSection ? `และไปหมวด ${nextSection.id} →` : "และดูสรุปผล →"}</button>
     </section>`;
     els.emptyState.hidden = visible.length > 0;
+  }
+
+  function refreshCurrentSectionProgress(section) {
+    const stats = getStats(section.items);
+    const remaining = stats.total - stats.answered;
+    const sectionConfirmed = Boolean(audit.sectionConfirmations?.[section.id]);
+    const nextSection = sections[sections.findIndex((entry) => entry.id === section.id) + 1];
+    els.sectionScore.innerHTML = `<strong>${stats.score.toFixed(Number.isInteger(stats.score) ? 0 : 1)} / ${stats.maxScore}</strong><span>${stats.answered}/${stats.total} ข้อ · ${displayPercent(stats.percent)}%</span>`;
+    const confirmRow = els.checklist.querySelector(".section-confirm-row");
+    if (!confirmRow) return;
+    confirmRow.classList.toggle("confirmed", sectionConfirmed);
+    confirmRow.querySelector("strong").textContent = sectionConfirmed ? `หมวด ${section.id} ยืนยันแล้ว` : remaining ? `เหลืออีก ${remaining} ข้อ` : "กรอกครบทุกข้อแล้ว";
+    confirmRow.querySelector("span").textContent = remaining ? "กรุณาตอบข้อย่อยให้ครบก่อนยืนยันหมวด" : "ตรวจสอบคำตอบทั้งหมด แล้วกดยืนยันเพียงครั้งเดียว";
+    const confirmButton = confirmRow.querySelector("[data-confirm-section]");
+    confirmButton.disabled = remaining > 0;
+    confirmButton.textContent = `${sectionConfirmed ? "ยืนยันหมวดนี้อีกครั้ง" : `ยืนยันหมวด ${section.id}`} ${nextSection ? `และไปหมวด ${nextSection.id} →` : "และดูสรุปผล →"}`;
+    const markRemainingButton = els.checklist.querySelector("[data-mark-remaining-comply]");
+    if (markRemainingButton) {
+      markRemainingButton.disabled = !section.items.some((item) => {
+        const response = responseFor(item.id);
+        return !response.rating && !response.note.trim() && !response.photos.length;
+      });
+    }
   }
 
   function updateSummary() {
@@ -972,6 +1049,26 @@
     els.itemSearch.addEventListener("input", () => { searchTerm = els.itemSearch.value; renderChecklist(); });
     els.findingFilter.addEventListener("change", () => { findingsOnly = els.findingFilter.checked; renderChecklist(); });
     els.checklist.addEventListener("click", async (event) => {
+      const markRemainingButton = event.target.closest("[data-mark-remaining-comply]");
+      if (markRemainingButton) {
+        const section = sections.find((entry) => entry.id === currentStep);
+        if (!section) return;
+        let marked = 0;
+        section.items.forEach((item) => {
+          const response = responseFor(item.id);
+          if (response.rating || response.note.trim() || response.photos.length) return;
+          response.rating = "comply";
+          response.autoRatedFromDetail = false;
+          marked += 1;
+        });
+        if (!marked) return;
+        invalidateSectionConfirmation(currentStep);
+        audit.status = "draft";
+        scheduleSave();
+        updateAll();
+        showToast(`ลง Comply อัตโนมัติ ${marked} ข้อที่ไม่พบข้อบกพร่อง`);
+        return;
+      }
       const confirmSectionButton = event.target.closest("[data-confirm-section]");
       if (confirmSectionButton) {
         await confirmSectionAndAdvance(confirmSectionButton.dataset.confirmSection);
@@ -981,17 +1078,33 @@
       if (!itemElement) return;
       const itemId = itemElement.dataset.itemId;
       const ratingButton = event.target.closest("[data-rating]");
+      const noFindingButton = event.target.closest("[data-no-finding-item]");
       const removeButton = event.target.closest("[data-photo-remove]");
-      if (ratingButton) {
+      if (noFindingButton) {
+        const response = responseFor(itemId);
+        response.rating = "comply";
+        response.autoRatedFromDetail = false;
+        invalidateSectionConfirmation(currentStep);
+        audit.status = "draft";
+        scheduleSave();
+        updateAll();
+        showToast(`ข้อ ${itemId}: ไม่พบข้อบกพร่อง ลง Comply แล้ว`);
+      } else if (ratingButton) {
         const response = responseFor(itemId);
         response.rating = ratingButton.dataset.rating;
+        response.autoRatedFromDetail = false;
         invalidateSectionConfirmation(currentStep);
         if (FINDING_RULES[response.rating] && !response.targetDate) response.targetDate = suggestedTargetDate(response.rating);
         audit.status = "draft";
         scheduleSave();
         updateAll();
       } else if (removeButton) {
-        responseFor(itemId).photos.splice(Number(removeButton.dataset.photoRemove), 1);
+        const response = responseFor(itemId);
+        response.photos.splice(Number(removeButton.dataset.photoRemove), 1);
+        if (response.autoRatedFromDetail && !response.note.trim() && !response.photos.length) {
+          response.rating = null;
+          response.autoRatedFromDetail = false;
+        }
         invalidateSectionConfirmation(currentStep);
         scheduleSave();
         renderChecklist();
@@ -999,11 +1112,46 @@
     });
     els.checklist.addEventListener("input", (event) => {
       if (!event.target.matches("[data-note]")) return;
-      const itemId = event.target.closest(".check-item").dataset.itemId;
-      responseFor(itemId).note = event.target.value;
+      const itemElement = event.target.closest(".check-item");
+      const itemId = itemElement.dataset.itemId;
+      const response = responseFor(itemId);
+      response.note = event.target.value;
+      if (response.note.trim() && (!response.rating || response.rating === "comply")) {
+        response.rating = "observe";
+        response.autoRatedFromDetail = true;
+        if (!response.targetDate) response.targetDate = suggestedTargetDate("observe");
+        itemElement.querySelectorAll("[data-rating]").forEach((button) => {
+          const selected = button.dataset.rating === "observe";
+          button.classList.toggle("selected", selected);
+          button.setAttribute("aria-checked", String(selected));
+        });
+        const panel = itemElement.querySelector(".finding-panel");
+        panel?.classList.remove("pending");
+        const panelTitle = panel?.querySelector("label > span");
+        const panelHint = panel?.querySelector("label > small");
+        if (panelTitle) panelTitle.textContent = "รายละเอียดข้อบกพร่อง / สิ่งที่ตรวจพบ";
+        if (panelHint) panelHint.textContent = "ระบบบันทึกข้อมูลนี้อัตโนมัติ";
+      } else if (!response.note.trim() && response.autoRatedFromDetail && !response.photos.length) {
+        response.rating = null;
+        response.autoRatedFromDetail = false;
+        itemElement.querySelectorAll("[data-rating]").forEach((button) => {
+          button.classList.remove("selected");
+          button.setAttribute("aria-checked", "false");
+        });
+        const panel = itemElement.querySelector(".finding-panel");
+        panel?.classList.add("pending");
+        const panelTitle = panel?.querySelector("label > span");
+        const panelHint = panel?.querySelector("label > small");
+        if (panelTitle) panelTitle.textContent = "พบข้อบกพร่อง? กรอกรายละเอียดได้ทันที";
+        if (panelHint) panelHint.textContent = "เมื่อเริ่มกรอก ระบบจะเลือกระดับ Observe ให้อัตโนมัติ";
+      }
       invalidateSectionConfirmation(currentStep);
       audit.status = "draft";
       scheduleSave();
+      const section = sections.find((entry) => entry.id === currentStep);
+      if (section) refreshCurrentSectionProgress(section);
+      renderNav();
+      updateSummary();
     });
     els.checklist.addEventListener("change", async (event) => {
       if (!event.target.matches("[data-photo], [data-photo-file]") || !event.target.files?.length) return;
@@ -1012,7 +1160,13 @@
       try {
         showToast(`กำลังย่อและแนบรูป ${files.length} รูป...`);
         const photos = await Promise.all(files.map(compressImage));
-        responseFor(itemId).photos.push(...photos);
+        const response = responseFor(itemId);
+        response.photos.push(...photos);
+        if (!response.rating || response.rating === "comply") {
+          response.rating = "observe";
+          response.autoRatedFromDetail = true;
+          if (!response.targetDate) response.targetDate = suggestedTargetDate("observe");
+        }
         invalidateSectionConfirmation(currentStep);
         scheduleSave();
         renderChecklist();
