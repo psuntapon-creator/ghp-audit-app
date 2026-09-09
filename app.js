@@ -9,18 +9,39 @@
     departments: ["PD4"],
     areas: ["Dairy filling"],
   };
+  const BANGPHLI_SITE = "โรงงานบางพลี";
   const THEPHARAK_SITE = "โรงงานเทพารักษ์";
-  const DEFAULT_ZONE_LOCATIONS = {
-    "Zone 1": ["คลังอาคาร 1 : คลัง Chill", "คลังอาคาร 1 : คลัง Air"],
-    "Zone 2": ["แผนกวิศวกรรม"],
-    "Zone 3": ["ไลน์ Processed Cheese ชั้น 1", "ไลน์ Processed Cheese ชั้น M", "ไลน์ Processed Cheese A3", "ห้อง Allergen/Non-Allergen อาคาร 4"],
-    "Zone 4": ["ไลน์ Butter/Margarine", "Tank น้ำมัน", "ห้อง Allergen/Non-Allergen อาคาร 3"],
-    "Zone 5": ["ไลน์ Processed Cheese ชั้น 2", "C9", "C10", "Blast Chill"],
-    "Zone 6": ["ไลน์ Natural Cheese"],
-    "Zone 7": ["คลังสินค้าอาคาร 4 : C6", "อาคาร 2 : A1", "อาคาร 4 ข้าง Bulk Gas", "อาคารโรงอาหารชั้น 3", "อาคารโรงอาหารชั้น 4"],
-    "Zone 8": ["ทางเดินไปโรงอาหาร", "โรงอาหาร", "ห้องซักรีด", "ห้องน้ำผลิตอาคาร 2", "ห้องน้ำผลิตอาคาร 4"],
-    "Zone 9": ["คลังอาคาร 2 คลัง PK", "ห้องเก็บกลิ่นสี", "คลังเก็บสารเคมี"],
-    "Zone 10": ["ลานโหลดรถเล็ก & รถใหญ่", "รถขนส่งและลานจอดรถขนส่ง"],
+  const DEFAULT_SITE_ZONE_LOCATIONS = {
+    [BANGPHLI_SITE]: {
+      "Zone 1": ["Zone 1-PD1_Cracker A,B"],
+      "Zone 2": ["Zone 2-PD2_Cookie"],
+      "Zone 3": ["Zone 3-PD2_Jelly powder"],
+      "Zone 4": ["Zone 4-PD2_Repack"],
+      "Zone 5": ["Zone 5-PD2_Mixed flour"],
+      "Zone 6": ["Zone 6-PD3_Sunquick"],
+      "Zone 7": ["Zone 7-PD3_Syrup"],
+      "Zone 8": ["Zone 8-PD3_Wafer"],
+      "Zone 9": ["Zone 9-PD4_Jelly cup"],
+      "Zone 10": ["Zone 10-PD4_Cherry"],
+      "Zone 11": ["Zone 11-PD4_Jam/Non Dairy filling"],
+      "Zone 12": ["Zone 12-PD4_Dairy filling"],
+      "Zone 13": ["Zone 13-GN_รอบนอก"],
+      "Zone 14": ["Zone 14_WH RM/PM"],
+      "Zone 15": ["Zone 15_Logistic Park"],
+      "Zone 16": ["Zone 16_Engineer"],
+    },
+    [THEPHARAK_SITE]: {
+      "Zone 1": ["คลังอาคาร 1 : คลัง Chill", "คลังอาคาร 1 : คลัง Air"],
+      "Zone 2": ["แผนกวิศวกรรม"],
+      "Zone 3": ["ไลน์ Processed Cheese ชั้น 1", "ไลน์ Processed Cheese ชั้น M", "ไลน์ Processed Cheese A3", "ห้อง Allergen/Non-Allergen อาคาร 4"],
+      "Zone 4": ["ไลน์ Butter/Margarine", "Tank น้ำมัน", "ห้อง Allergen/Non-Allergen อาคาร 3"],
+      "Zone 5": ["ไลน์ Processed Cheese ชั้น 2", "C9", "C10", "Blast Chill"],
+      "Zone 6": ["ไลน์ Natural Cheese"],
+      "Zone 7": ["คลังสินค้าอาคาร 4 : C6", "อาคาร 2 : A1", "อาคาร 4 ข้าง Bulk Gas", "อาคารโรงอาหารชั้น 3", "อาคารโรงอาหารชั้น 4"],
+      "Zone 8": ["ทางเดินไปโรงอาหาร", "โรงอาหาร", "ห้องซักรีด", "ห้องน้ำผลิตอาคาร 2", "ห้องน้ำผลิตอาคาร 4"],
+      "Zone 9": ["คลังอาคาร 2 คลัง PK", "ห้องเก็บกลิ่นสี", "คลังเก็บสารเคมี"],
+      "Zone 10": ["ลานโหลดรถเล็ก & รถใหญ่", "รถขนส่งและลานจอดรถขนส่ง"],
+    },
   };
   const DEFAULT_AUDIT_TITLE = "แบบการตรวจประเมิน GHP เขตพื้นที่การผลิตและคลังสินค้า";
   const LEGACY_AUDIT_TITLES = new Set(["การตรวจประเมิน GHP เขตพื้นที่การผลิต"]);
@@ -30,7 +51,7 @@
   let adminChecklistType = "production";
   let sections = checklistSets.production.sections;
   let masterData = JSON.parse(JSON.stringify(DEFAULT_MASTER_DATA));
-  let zoneLocations = JSON.parse(JSON.stringify(DEFAULT_ZONE_LOCATIONS));
+  let siteZoneLocations = JSON.parse(JSON.stringify(DEFAULT_SITE_ZONE_LOCATIONS));
   let allItems = [];
   const PASS_THRESHOLD = 87;
   const PROFILES = {
@@ -94,21 +115,27 @@
     const unique = [...new Set([...(values || []), ...(selected && !(values || []).includes(selected) ? [selected] : [])])];
     return `<option value="">${escapeHtml(placeholder)}</option>${unique.map((value) => `<option value="${escapeHtml(value)}" ${value === selected ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}`;
   }
-  function isThepharakSite(site = audit?.meta?.site) {
-    return site === THEPHARAK_SITE;
+  function zoneLocationsForSite(site = audit?.meta?.site) {
+    return siteZoneLocations[site] || null;
   }
-  function isZone(value) {
-    return Object.prototype.hasOwnProperty.call(zoneLocations, value);
+  function isZoneSite(site = audit?.meta?.site) {
+    return Boolean(zoneLocationsForSite(site));
+  }
+  function isZone(value, site = audit?.meta?.site) {
+    return Object.prototype.hasOwnProperty.call(zoneLocationsForSite(site) || {}, value);
+  }
+  function isAnyZone(value) {
+    return Object.values(siteZoneLocations).some((zones) => Object.prototype.hasOwnProperty.call(zones, value));
   }
   function allZoneLocations() {
-    return Object.values(zoneLocations).flat();
+    return Object.values(siteZoneLocations).flatMap((zones) => Object.values(zones).flat());
   }
   function departmentOptionsFor(entry = audit) {
-    return isThepharakSite(entry?.meta?.site) ? Object.keys(zoneLocations) : masterData.departments;
+    return isZoneSite(entry?.meta?.site) ? Object.keys(zoneLocationsForSite(entry.meta.site)) : masterData.departments;
   }
   function areaOptionsFor(entry = audit) {
-    if (!isThepharakSite(entry?.meta?.site)) return masterData.areas;
-    return zoneLocations[entry?.meta?.department] || [];
+    if (!isZoneSite(entry?.meta?.site)) return masterData.areas;
+    return zoneLocationsForSite(entry.meta.site)?.[entry.meta.department] || [];
   }
   function uid() {
     return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -216,17 +243,26 @@
         if (Array.isArray(saved.masterData[key]) && saved.masterData[key].length) masterData[key] = saved.masterData[key];
       });
     }
-    if (saved?.zoneLocations && typeof saved.zoneLocations === "object") {
-      Object.keys(DEFAULT_ZONE_LOCATIONS).forEach((zone) => {
+    if (saved?.siteZoneLocations && typeof saved.siteZoneLocations === "object") {
+      Object.keys(DEFAULT_SITE_ZONE_LOCATIONS).forEach((site) => {
+        if (!saved.siteZoneLocations[site] || typeof saved.siteZoneLocations[site] !== "object") return;
+        Object.keys(DEFAULT_SITE_ZONE_LOCATIONS[site]).forEach((zone) => {
+          if (Array.isArray(saved.siteZoneLocations[site][zone])) {
+            siteZoneLocations[site][zone] = saved.siteZoneLocations[site][zone];
+          }
+        });
+      });
+    } else if (saved?.zoneLocations && typeof saved.zoneLocations === "object") {
+      Object.keys(DEFAULT_SITE_ZONE_LOCATIONS[THEPHARAK_SITE]).forEach((zone) => {
         if (Array.isArray(saved.zoneLocations[zone])) {
-          zoneLocations[zone] = saved.zoneLocations[zone];
+          siteZoneLocations[THEPHARAK_SITE][zone] = saved.zoneLocations[zone];
         }
       });
     }
     activateChecklist(activeChecklistType);
   }
   async function saveChecklistSettings() {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ checklists: checklistSets, masterData, zoneLocations, updatedAt: new Date().toISOString() }));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ checklists: checklistSets, masterData, siteZoneLocations, updatedAt: new Date().toISOString() }));
   }
   function scheduleChecklistSave() {
     els.saveStatus.classList.add("saving");
@@ -513,7 +549,7 @@
       <section class="admin-checklist-picker"><label class="field"><span>เลือกชุดคำถามที่ต้องการจัดการ</span><select data-admin-checklist-type>${Object.entries(checklistSets).map(([type, checklist]) => `<option value="${escapeHtml(type)}" ${adminChecklistType === type ? "selected" : ""}>${escapeHtml(checklist.label)} · ${itemsForType(type).length} ข้อ</option>`).join("")}</select></label></section>
       <section class="admin-toolbar"><div><h3>จัดการคำถาม · ${escapeHtml(auditTypeLabel(adminChecklistType))}</h3><p>แก้ข้อความ เพิ่ม หรือลบคำถามในชุดที่เลือกได้ทันที</p></div><div><button type="button" class="button secondary" data-admin-action="export">สำรองข้อมูลระบบ</button><button type="button" class="button secondary" data-admin-action="reset">คืนคำถามเริ่มต้น</button><button type="button" class="button primary" data-admin-action="add-section">+ เพิ่มหมวด</button></div></section>
       <section class="admin-master-card"><div class="card-heading"><div><span class="eyebrow">Master data</span><h3>ตัวเลือกข้อมูลการตรวจประเมิน</h3><p>รายการ Site จะแสดงเสมอ ส่วนแผนกและพื้นที่ชุดนี้ใช้สำหรับ Site อื่นที่ไม่ใช่โรงงานเทพารักษ์</p></div></div><div class="admin-master-grid">${Object.keys(MASTER_LABELS).map((key) => `<section data-master-key="${key}"><header><h4>${MASTER_LABELS[key]}</h4><button type="button" data-admin-action="add-master">+ เพิ่ม</button></header><div>${masterData[key].map((value, index) => `<label data-master-index="${index}"><input data-master-value value="${escapeHtml(value)}" aria-label="${MASTER_LABELS[key]} ${index + 1}" /><button type="button" class="admin-delete-button" data-admin-action="delete-master">ลบ</button></label>`).join("")}</div></section>`).join("")}</div></section>
-      <section class="admin-master-card admin-zone-card"><div class="card-heading"><div><span class="eyebrow">Thepharak zones</span><h3>Zone Location · โรงงานเทพารักษ์</h3><p>แก้ไขรายการพื้นที่ตรวจที่จะแสดงหลังผู้ตรวจเลือก Zone 1–10</p></div></div><div class="admin-master-grid">${Object.entries(zoneLocations).map(([zone, locations]) => `<section data-zone-key="${escapeHtml(zone)}"><header><h4>${escapeHtml(zone)}</h4><button type="button" data-admin-action="add-zone-location">+ เพิ่ม</button></header><div>${locations.map((value, index) => `<label data-zone-index="${index}"><input data-zone-location-value value="${escapeHtml(value)}" aria-label="${escapeHtml(zone)} พื้นที่ ${index + 1}" /><button type="button" class="admin-delete-button" data-admin-action="delete-zone-location">ลบ</button></label>`).join("")}</div></section>`).join("")}</div></section>
+      ${Object.entries(siteZoneLocations).map(([site, zones]) => `<section class="admin-master-card admin-zone-card" data-zone-site="${escapeHtml(site)}"><div class="card-heading"><div><span class="eyebrow">Site zones</span><h3>Zone Location · ${escapeHtml(site)}</h3><p>แก้ไขรายการพื้นที่ตรวจที่จะแสดงหลังผู้ตรวจเลือก Zone ของโรงงานนี้</p></div></div><div class="admin-master-grid">${Object.entries(zones).map(([zone, locations]) => `<section data-zone-key="${escapeHtml(zone)}"><header><h4>${escapeHtml(zone)}</h4><button type="button" data-admin-action="add-zone-location">+ เพิ่ม</button></header><div>${locations.map((value, index) => `<label data-zone-index="${index}"><input data-zone-location-value value="${escapeHtml(value)}" aria-label="${escapeHtml(site)} ${escapeHtml(zone)} พื้นที่ ${index + 1}" /><button type="button" class="admin-delete-button" data-admin-action="delete-zone-location">ลบ</button></label>`).join("")}</div></section>`).join("")}</div></section>`).join("")}
       <div class="admin-section-list">${adminSections.map((section, sectionIndex) => `<section class="admin-section" data-admin-section="${sectionIndex}"><header><label class="field"><span>ชื่อหมวด ${section.id}</span><input data-section-title value="${escapeHtml(section.title)}" /></label><div><b>${section.items.length} คำถาม</b><button type="button" class="admin-delete-button" data-admin-action="delete-section">ลบหมวด</button></div></header><div class="admin-question-list">${section.items.map((item, itemIndex) => `<article class="admin-question" data-admin-item="${itemIndex}"><span class="item-code">${escapeHtml(item.id)}</span><textarea data-question-text aria-label="คำถาม ${escapeHtml(item.id)}">${escapeHtml(item.text)}</textarea><button type="button" class="admin-delete-button" data-admin-action="delete-question">ลบ</button></article>`).join("")}</div><button type="button" class="admin-add-question" data-admin-action="add-question">+ เพิ่มคำถามในหมวดนี้</button></section>`).join("")}</div>
       <section class="admin-data-card"><div class="card-heading"><div><span class="eyebrow">Audit data</span><h3>ข้อมูลแบบตรวจบนอุปกรณ์</h3></div></div><div class="admin-audit-list">${audits.length ? audits.map((entry) => { const stats = entryStats(entry); return `<article data-admin-audit="${escapeHtml(entry.id)}"><div><b>${escapeHtml(entry.meta?.area || "ยังไม่ระบุพื้นที่")}</b><span>${escapeHtml(auditTypeLabel(entry.meta?.auditType))} · ${escapeHtml(entry.meta?.site || "ยังไม่ระบุ Site")} · ${escapeHtml(entry.meta?.department || "—")} · ${escapeHtml(formatDate(entry.meta?.auditDate))}</span></div><div><strong>${stats.answered}/${stats.total}</strong><span>${entry.status === "complete" ? "เสร็จสิ้น" : "ฉบับร่าง"}</span></div><button type="button" class="admin-delete-button" data-admin-action="delete-audit">ลบข้อมูล</button></article>`; }).join("") : `<div class="dashboard-empty compact">ยังไม่มีข้อมูลแบบตรวจ</div>`}</div></section>`;
   }
@@ -568,8 +604,8 @@
           <label class="field full audit-type-field"><span>ประเภทแบบตรวจ</span><select data-audit-type>${Object.entries(checklistSets).map(([type, checklist]) => `<option value="${escapeHtml(type)}" ${audit.meta.auditType === type ? "selected" : ""}>${escapeHtml(checklist.label)}</option>`).join("")}</select><small>เมื่อเลือกประเภท ระบบจะแสดงชุดคำถามที่ตรงกับพื้นที่ตรวจโดยอัตโนมัติ</small></label>
           <label class="field full"><span>ชื่อแบบตรวจ</span><input data-meta="title" value="${escapeHtml(audit.meta.title)}" /></label>
           <label class="field"><span>Site / สถานที่ตั้ง</span><select data-meta="site">${selectOptions(masterData.sites, audit.meta.site || "", "เลือก Site")}</select></label>
-          <label class="field"><span>แผนก / Zone</span><select data-meta="department">${selectOptions(departmentOptionsFor(), audit.meta.department || "", isThepharakSite() ? "เลือก Zone" : "เลือกแผนก")}</select></label>
-          <label class="field"><span>Zone Location / พื้นที่ตรวจ</span><select data-meta="area" ${isThepharakSite() && !isZone(audit.meta.department) ? "disabled" : ""}>${selectOptions(areaOptionsFor(), audit.meta.area || "", isThepharakSite() ? (isZone(audit.meta.department) ? "เลือก Zone Location" : "กรุณาเลือก Zone ก่อน") : "เลือกพื้นที่")}</select></label>
+          <label class="field"><span>แผนก / Zone</span><select data-meta="department">${selectOptions(departmentOptionsFor(), audit.meta.department || "", isZoneSite() ? "เลือก Zone" : "เลือกแผนก")}</select></label>
+          <label class="field"><span>Zone Location / พื้นที่ตรวจ</span><select data-meta="area" ${isZoneSite() && !isZone(audit.meta.department) ? "disabled" : ""}>${selectOptions(areaOptionsFor(), audit.meta.area || "", isZoneSite() ? (isZone(audit.meta.department) ? "เลือก Zone Location" : "กรุณาเลือก Zone ก่อน") : "เลือกพื้นที่")}</select></label>
           <label class="field"><span>ประจำเดือน</span><input type="month" data-meta="auditMonth" value="${escapeHtml(audit.meta.auditMonth)}" /></label>
           <label class="field"><span>วันที่ตรวจ</span><input type="date" data-meta="auditDate" value="${escapeHtml(audit.meta.auditDate)}" /></label>
           <label class="field"><span>Auditor / ผู้ตรวจ</span><input data-meta="auditor" value="${escapeHtml(audit.meta.auditor)}" placeholder="ชื่อผู้ตรวจ" /></label>
@@ -604,15 +640,15 @@
         const key = input.dataset.meta;
         audit.meta[key] = input.value;
         if (key === "site") {
-          if (isThepharakSite()) {
+          if (isZoneSite()) {
             if (!isZone(audit.meta.department)) audit.meta.department = "";
             if (!areaOptionsFor().includes(audit.meta.area)) audit.meta.area = "";
           } else {
-            if (isZone(audit.meta.department)) audit.meta.department = "";
+            if (isAnyZone(audit.meta.department)) audit.meta.department = "";
             if (allZoneLocations().includes(audit.meta.area)) audit.meta.area = "";
           }
         }
-        if (key === "department" && isThepharakSite() && !areaOptionsFor().includes(audit.meta.area)) {
+        if (key === "department" && isZoneSite() && !areaOptionsFor().includes(audit.meta.area)) {
           audit.meta.area = "";
         }
         audit.status = "draft";
@@ -1058,9 +1094,10 @@
       }
       const zoneElement = event.target.closest("[data-zone-key]");
       if (zoneElement && event.target.matches("[data-zone-location-value]")) {
+        const site = event.target.closest("[data-zone-site]")?.dataset.zoneSite;
         const zone = zoneElement.dataset.zoneKey;
         const index = Number(event.target.closest("[data-zone-index]").dataset.zoneIndex);
-        if (zoneLocations[zone]?.[index] != null) zoneLocations[zone][index] = event.target.value;
+        if (siteZoneLocations[site]?.[zone]?.[index] != null) siteZoneLocations[site][zone][index] = event.target.value;
         scheduleChecklistSave();
         return;
       }
@@ -1091,7 +1128,7 @@
       }
       if (action === "export") {
         const audits = await listAudits();
-        const payload = { schemaVersion: 4, exportedAt: new Date().toISOString(), checklists: checklistSets, masterData, zoneLocations, audits };
+        const payload = { schemaVersion: 5, exportedAt: new Date().toISOString(), checklists: checklistSets, masterData, siteZoneLocations, audits };
         downloadBlob(JSON.stringify(payload, null, 2), `KCG-GHP-System-Backup-${today()}.json`, "application/json;charset=utf-8");
         showToast("ดาวน์โหลดข้อมูลระบบแล้ว");
         return;
@@ -1100,7 +1137,7 @@
         if (!confirm("คืนคำถามและตัวเลือกข้อมูลทั้งหมดเป็นค่าเริ่มต้นหรือไม่? ข้อมูลคำตอบเดิมจะยังคงอยู่")) return;
         checklistSets = JSON.parse(JSON.stringify(DEFAULT_CHECKLISTS));
         masterData = JSON.parse(JSON.stringify(DEFAULT_MASTER_DATA));
-        zoneLocations = JSON.parse(JSON.stringify(DEFAULT_ZONE_LOCATIONS));
+        siteZoneLocations = JSON.parse(JSON.stringify(DEFAULT_SITE_ZONE_LOCATIONS));
         activateAuditChecklist();
         await saveChecklistSettings();
         updateAll({ checklist: false });
@@ -1137,22 +1174,24 @@
         return;
       }
       const zoneElement = button.closest("[data-zone-key]");
+      const zoneSite = button.closest("[data-zone-site]")?.dataset.zoneSite;
       const zoneKey = zoneElement?.dataset.zoneKey;
-      if (action === "add-zone-location" && zoneLocations[zoneKey]) {
-        zoneLocations[zoneKey].push("พื้นที่ใหม่");
+      const editableZoneLocations = siteZoneLocations[zoneSite]?.[zoneKey];
+      if (action === "add-zone-location" && editableZoneLocations) {
+        editableZoneLocations.push("พื้นที่ใหม่");
         await saveChecklistSettings();
         updateAll({ checklist: false });
-        showToast(`เพิ่มพื้นที่ใน ${zoneKey} แล้ว`);
+        showToast(`เพิ่มพื้นที่ใน ${zoneSite} · ${zoneKey} แล้ว`);
         return;
       }
-      if (action === "delete-zone-location" && zoneLocations[zoneKey]) {
+      if (action === "delete-zone-location" && editableZoneLocations) {
         const zoneIndex = Number(button.closest("[data-zone-index]")?.dataset.zoneIndex);
-        const value = zoneLocations[zoneKey][zoneIndex];
-        if (value == null || !confirm(`ลบพื้นที่ “${value}” ออกจาก ${zoneKey} หรือไม่?`)) return;
-        zoneLocations[zoneKey].splice(zoneIndex, 1);
+        const value = editableZoneLocations[zoneIndex];
+        if (value == null || !confirm(`ลบพื้นที่ “${value}” ออกจาก ${zoneSite} · ${zoneKey} หรือไม่?`)) return;
+        editableZoneLocations.splice(zoneIndex, 1);
         await saveChecklistSettings();
         updateAll({ checklist: false });
-        showToast(`ลบพื้นที่ออกจาก ${zoneKey} แล้ว`);
+        showToast(`ลบพื้นที่ออกจาก ${zoneSite} · ${zoneKey} แล้ว`);
         return;
       }
       const sectionElement = button.closest("[data-admin-section]");
