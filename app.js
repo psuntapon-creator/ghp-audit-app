@@ -359,6 +359,13 @@
     if (!("rating" in response)) response.rating = null;
     if (!("note" in response)) response.note = "";
     if (!Array.isArray(response.photos)) response.photos = [];
+    if (!Array.isArray(response.findingEntries)) {
+      const savedNotes = Array.isArray(response.findingNotes) && response.findingNotes.length ? response.findingNotes : [response.note || ""];
+      response.findingEntries = savedNotes.map((note, index) => ({ id: uid(), note: String(note || ""), photos: index === 0 ? [...response.photos] : [] }));
+      delete response.findingNotes;
+    }
+    response.findingEntries = response.findingEntries.map((entry) => ({ id: entry?.id || uid(), note: String(entry?.note || ""), photos: Array.isArray(entry?.photos) ? entry.photos : [] }));
+    if (!response.findingEntries.length) response.findingEntries.push({ id: uid(), note: "", photos: [] });
     if (!("correctiveAction" in response)) response.correctiveAction = "";
     if (!("responsibility" in response)) response.responsibility = "";
     if (!("targetDate" in response)) response.targetDate = "";
@@ -366,6 +373,20 @@
     if (!Array.isArray(response.closurePhotos)) response.closurePhotos = [];
     if (!("autoRatedFromDetail" in response)) response.autoRatedFromDetail = false;
     return response;
+  }
+  function findingEntriesFor(response) {
+    if (!Array.isArray(response.findingEntries)) response.findingEntries = [{ id: uid(), note: response.note || "", photos: [...(response.photos || [])] }];
+    if (!response.findingEntries.length) response.findingEntries.push({ id: uid(), note: "", photos: [] });
+    return response.findingEntries;
+  }
+  function activeFindingEntries(response) {
+    return findingEntriesFor(response).filter((entry) => entry.note.trim() || entry.photos.length);
+  }
+  function syncFindingEntries(response) {
+    const activeEntries = activeFindingEntries(response);
+    const notes = activeEntries.map((entry) => entry.note.trim()).filter(Boolean);
+    response.note = notes.length > 1 ? notes.map((note, index) => `${index + 1}. ${note}`).join("\n") : (notes[0] || "");
+    response.photos = activeEntries.flatMap((entry) => entry.photos);
   }
   function profile() { return PROFILES[audit.scoringProfile] || PROFILES.pd; }
   function itemScore(itemId) {
@@ -417,10 +438,21 @@
     toastTimer = setTimeout(() => els.toast.classList.remove("show"), 2400);
   }
 
+  function missingAuditMeta() {
+    const required = {
+      site: "Site",
+      department: "แผนก / Zone",
+      area: "พื้นที่ตรวจ",
+      auditDate: "วันที่ตรวจ",
+      auditor: "ผู้ตรวจ",
+    };
+    return Object.entries(required).filter(([key]) => !String(audit.meta?.[key] || "").trim());
+  }
+
   function renderNav() {
     const metaActive = currentStep === "meta";
     const checklistActive = currentStep === "checklist";
-    const metaComplete = ["site", "department", "area", "auditDate", "auditor"].every((key) => audit.meta[key]);
+    const metaComplete = missingAuditMeta().length === 0;
     const findings = getFindings();
     const openFindings = findings.filter(({ response }) => response.actionStatus !== "closed").length;
     const items = [
@@ -471,7 +503,7 @@
           </button>
           <button type="button" class="dashboard-action finding-entry-action" data-dashboard-action="enter-defect">
             <span class="dashboard-action-icon" aria-hidden="true">＋</span>
-            <span class="dashboard-action-copy"><strong>กรอกข้อบกพร่อง</strong><small>บันทึกรายละเอียดและรูปที่ตรวจพบ</small></span>
+            <span class="dashboard-action-copy"><strong>กรอกข้อบกพร่อง</strong><small>เริ่มบันทึกได้ทันที แม้ยังไม่ได้กรอกข้อมูลการตรวจ</small></span>
             <span class="dashboard-action-arrow" aria-hidden="true">→</span>
           </button>
           <button type="button" class="dashboard-action defect-action ${openFindings.length ? "has-findings" : ""}" data-dashboard-action="defects">
@@ -538,10 +570,11 @@
       ${findings.length ? `<div class="defect-list">${findings.map(({ item, response, section }) => {
         const rule = FINDING_RULES[response.rating];
         const targetValue = response.targetDate;
+        const evidenceEntries = activeFindingEntries(response);
         return `<article class="defect-card ${response.rating} ${response.actionStatus === "closed" ? "is-closed" : ""}" data-defect-id="${item.id}">
           <header class="defect-card-head"><div><span class="severity-badge ${response.rating}">${rule.label}</span><b>Requirement ${item.id}</b><small>${escapeHtml(sectionShortTitle(section))}</small></div><span class="sla-label">ภายใน ${rule.deadline}</span></header>
           <div class="defect-requirement"><span>สิ่งที่ต้องตรวจสอบ</span><p>${escapeHtml(item.text).replace(/\n/g, "<br>")}</p></div>
-          <div class="defect-evidence"><div><span>ข้อค้นพบ / หลักฐาน</span><p>${escapeHtml(response.note || "ยังไม่ได้ระบุรายละเอียดข้อค้นพบ")}</p></div>${(response.photos || []).length ? `<div class="defect-photo-row">${response.photos.map((photo, index) => `<img src="${escapeHtml(photo)}" alt="รูปหลักฐานข้อ ${item.id} รูปที่ ${index + 1}" />`).join("")}</div>` : ""}</div>
+          <div class="defect-evidence"><span>ข้อค้นพบ / หลักฐาน</span><div class="defect-evidence-list">${evidenceEntries.length ? evidenceEntries.map((entry, entryIndex) => `<article><b>รายการที่ ${entryIndex + 1}</b><p>${escapeHtml(entry.note || "ยังไม่ได้ระบุรายละเอียดข้อค้นพบ")}</p>${entry.photos.length ? `<div class="defect-photo-row">${entry.photos.map((photo, photoIndex) => `<img src="${escapeHtml(photo)}" alt="รูปหลักฐานข้อ ${item.id} รายการที่ ${entryIndex + 1} รูปที่ ${photoIndex + 1}" />`).join("")}</div>` : ""}</article>`).join("") : `<p>ยังไม่ได้ระบุรายละเอียดข้อค้นพบ</p>`}</div></div>
           <div class="corrective-grid">
             <label class="field"><span>ผู้รับผิดชอบ</span><input data-corrective="responsibility" value="${escapeHtml(response.responsibility)}" placeholder="ชื่อหรือหน่วยงาน" /></label>
             <label class="field"><span>กำหนดเสร็จ</span><input type="date" data-corrective="targetDate" value="${escapeHtml(targetValue)}" /></label>
@@ -707,12 +740,13 @@
         if (key === "site" || key === "department") updateAll({ checklist: false });
       });
     });
-    $("startAuditButton").textContent = "เริ่มกรอกข้อบกพร่อง →";
+    $("startAuditButton").textContent = missingAuditMeta().length ? "กรอกข้อบกพร่องก่อน →" : "เริ่มกรอกข้อบกพร่อง →";
     $("startAuditButton").addEventListener("click", enterDefectEntry);
   }
 
   function renderChecklist() {
     const stats = getStats();
+    const missingMeta = missingAuditMeta();
     const remaining = stats.total - stats.answered;
     const unansweredWithoutFinding = allItems.filter((item) => {
       const response = responseFor(item.id);
@@ -739,8 +773,11 @@
       const sectionStats = getStats(section.items);
       const itemHtml = items.map((item) => {
         const response = responseFor(item.id);
+        const findingEntries = findingEntriesFor(response);
+        const activeEntries = activeFindingEntries(response);
         const isFinding = response.rating && response.rating !== "comply";
         const hasFindingDetail = Boolean(response.note.trim() || response.photos.length);
+        const missingFindingPhoto = isFinding && (!activeEntries.length || activeEntries.some((entry) => !entry.photos.length));
         const showFindingPanel = defectEntryMode || !response.rating || isFinding || hasFindingDetail;
         return `<article class="check-item" data-item-id="${item.id}">
           <div class="check-main">
@@ -752,17 +789,14 @@
               </div>
             </div>
           </div>
-          <div class="finding-panel ${!response.rating ? "pending" : ""}" ${showFindingPanel ? "" : "hidden"}>
-            <label><span>${isFinding ? "รายละเอียดข้อบกพร่อง / สิ่งที่ตรวจพบ" : "พบข้อบกพร่อง? กรอกรายละเอียดได้ทันที"}</span>
-              <small>${isFinding ? "ระบบบันทึกข้อมูลนี้อัตโนมัติ" : "เมื่อเริ่มกรอก ระบบจะเลือกระดับ Observe ให้อัตโนมัติ"}</small>
-              <textarea data-note placeholder="ระบุสิ่งที่พบ ตำแหน่ง และผู้รับผิดชอบ...">${escapeHtml(response.note)}</textarea>
-            </label>
+          <div class="finding-panel ${!response.rating ? "pending" : ""} ${missingFindingPhoto ? "photo-required" : ""}" ${showFindingPanel ? "" : "hidden"}>
+            <div class="finding-detail-heading"><div><strong>${isFinding ? "รายละเอียดข้อบกพร่อง / สิ่งที่ตรวจพบ" : "พบข้อบกพร่อง? กรอกรายละเอียดได้ทันที"}</strong><small>${isFinding ? "เพิ่มรายละเอียดการพบปัญหาในข้อเดียวกันได้มากกว่า 1 รายการ" : "เมื่อเริ่มกรอก ระบบจะเลือกระดับ Observe ให้อัตโนมัติ"}</small></div><button type="button" class="add-finding-detail" data-add-finding-note>＋ เพิ่มรายการ</button></div>
+            <div class="finding-detail-list">${findingEntries.map((entry, entryIndex) => {
+              const entryActive = Boolean(entry.note.trim() || entry.photos.length) || (isFinding && entryIndex === 0 && !activeEntries.length);
+              const entryMissingPhoto = isFinding && entryActive && !entry.photos.length;
+              return `<article class="finding-detail-entry ${entryMissingPhoto ? "missing-photo" : ""}" data-finding-entry="${escapeHtml(entry.id)}"><header><b>รายการข้อบกพร่องที่ ${entryIndex + 1}</b>${findingEntries.length > 1 ? `<button type="button" data-remove-finding-entry aria-label="ลบรายการข้อบกพร่องที่ ${entryIndex + 1}">ลบรายการ</button>` : ""}</header><textarea data-finding-note placeholder="ระบุสิ่งที่พบ ตำแหน่ง และผู้รับผิดชอบ...">${escapeHtml(entry.note)}</textarea><div class="attachment-row"><label class="attach-button camera-button">📷 ถ่ายรูป<input type="file" accept="image/*" capture="environment" data-photo /></label><label class="attach-button file-button">🖼 เลือกรูปจากเครื่อง/ไฟล์<input type="file" accept="image/*" multiple data-photo-file /></label>${entry.photos.map((photo, photoIndex) => `<span class="photo-wrap"><img class="photo-thumb" src="${photo}" alt="รูปแนบข้อ ${item.id} รายการที่ ${entryIndex + 1}" /><button type="button" class="photo-remove" data-photo-remove="${photoIndex}" aria-label="ลบรูป">×</button></span>`).join("")}</div><p class="photo-requirement ${entryMissingPhoto ? "missing" : ""}">${entry.photos.length ? `แนบรูปหลักฐานแล้ว ${entry.photos.length} รูป · สามารถเพิ่มได้อีก` : "รายการข้อบกพร่องต้องแนบรูปอย่างน้อย 1 รูป · สามารถแนบได้หลายรูป"}</p></article>`;
+            }).join("")}</div>
             ${!response.rating ? `<button type="button" class="no-finding-button" data-no-finding-item>✓ ไม่พบข้อบกพร่อง — ลง Comply</button>` : ""}
-            <div class="attachment-row">
-              <label class="attach-button camera-button">📷 ถ่ายรูป<input type="file" accept="image/*" capture="environment" data-photo /></label>
-              <label class="attach-button file-button">🖼 เลือกรูปจากเครื่อง/ไฟล์<input type="file" accept="image/*" multiple data-photo-file /></label>
-              ${(response.photos || []).map((photo, index) => `<span class="photo-wrap"><img class="photo-thumb" src="${photo}" alt="รูปแนบข้อ ${item.id}" /><button type="button" class="photo-remove" data-photo-remove="${index}" aria-label="ลบรูป">×</button></span>`).join("")}
-            </div>
           </div>
         </article>`;
       }).join("");
@@ -772,7 +806,11 @@
       </section>`;
     }).join("");
 
-    els.checklist.innerHTML = `<section class="quick-audit-bar defect-entry-mode">
+    const incompleteMetaBanner = missingMeta.length ? `<section class="audit-meta-reminder">
+      <div><strong>ยังกรอกข้อมูลการตรวจไม่ครบ · ใช้ชุดคำถาม ${escapeHtml(auditTypeLabel(audit.meta.auditType))}</strong><span>สามารถกรอกข้อบกพร่องไว้ก่อนได้ · หากชุดคำถามไม่ตรง กรุณาเลือกประเภทแบบตรวจก่อน · ก่อนปิดแบบตรวจ ต้องเพิ่ม ${escapeHtml(missingMeta.map(([, label]) => label).join(", "))}</span></div>
+      <button type="button" class="button secondary" data-open-meta>เลือกประเภท / กรอกข้อมูล</button>
+    </section>` : "";
+    els.checklist.innerHTML = `${incompleteMetaBanner}<section class="quick-audit-bar defect-entry-mode">
       <div><strong>ขั้นตอนที่ 1 · กรอกข้อบกพร่องที่พบ</strong><span>กรอกรายละเอียดหรือแนบรูป ระบบจะบันทึกเป็น Observe อัตโนมัติ และสามารถเปลี่ยนเป็น Minor หรือ Major ได้</span></div>
       <button type="button" class="button secondary" data-mark-remaining-comply ${unansweredWithoutFinding ? "" : "disabled"}>ขั้นตอนที่ 2 · ไม่พบข้อบกพร่องเพิ่มเติม — ลง Comply ที่เหลือ</button>
     </section>${sectionHtml}<section class="section-confirm-row">
@@ -856,15 +894,10 @@
   }
 
   function enterDefectEntry() {
-    const metaComplete = ["site", "department", "area", "auditDate", "auditor"].every((key) => audit.meta[key]);
-    if (!metaComplete) {
-      navigate("meta");
-      showToast("กรุณากรอกข้อมูลการตรวจให้ครบก่อนกรอกข้อบกพร่อง");
-      return;
-    }
+    const hasMissingMeta = missingAuditMeta().length > 0;
     defectEntryMode = true;
     navigate("checklist");
-    showToast("กรอกข้อบกพร่องที่พบก่อน แล้วลง Comply ให้รายการที่เหลือครั้งเดียว");
+    showToast(hasMissingMeta ? "กรอกข้อบกพร่องไว้ก่อนได้ แล้วกลับมาเติมข้อมูลการตรวจภายหลัง" : "กรอกข้อบกพร่องที่พบก่อน แล้วลง Comply ให้รายการที่เหลือครั้งเดียว");
   }
 
   async function compressImage(file) {
@@ -968,8 +1001,7 @@
           <header><h3>${findingProfile.label} <span>${entries.length} ข้อ</span></h3><p>ต้องปรับปรุงแก้ไขให้แล้วเสร็จภายใน ${findingProfile.deadline}</p></header>
           ${entries.map(({ item, response, section }, entryIndex) => `<article class="print-finding-card">
             <div class="print-finding-meta"><b>${entryIndex + 1}. Requirement ${escapeHtml(item.id)}</b><span>${escapeHtml(audit.meta.site || "ยังไม่ระบุ Site")} · ${escapeHtml(sectionShortTitle(section))} · ${escapeHtml(audit.meta.area || "ยังไม่ระบุพื้นที่")}</span></div>
-            <div class="print-finding-description"><span>Description / Evidence</span><p>${escapeHtml(response.note || "ไม่ได้ระบุรายละเอียด")}</p></div>
-            ${(response.photos || []).length ? `<h4 class="print-photo-label">รูปหลักฐานข้อบกพร่อง</h4><div class="print-photo-grid">${response.photos.map((photo, photoIndex) => `<figure><img src="${escapeHtml(photo)}" alt="รูปหลักฐานข้อ ${escapeHtml(item.id)} รูปที่ ${photoIndex + 1}" /><figcaption>รูปหลักฐาน ${photoIndex + 1}</figcaption></figure>`).join("")}</div>` : `<p class="print-no-photo">ไม่มีรูปหลักฐานแนบ</p>`}
+            ${activeFindingEntries(response).map((findingEntry, detailIndex) => `<section class="print-finding-detail"><div class="print-finding-description"><span>Description / Evidence · รายการที่ ${detailIndex + 1}</span><p>${escapeHtml(findingEntry.note || "ไม่ได้ระบุรายละเอียด")}</p></div>${findingEntry.photos.length ? `<h4 class="print-photo-label">รูปหลักฐานรายการที่ ${detailIndex + 1}</h4><div class="print-photo-grid">${findingEntry.photos.map((photo, photoIndex) => `<figure><img src="${escapeHtml(photo)}" alt="รูปหลักฐานข้อ ${escapeHtml(item.id)} รายการที่ ${detailIndex + 1} รูปที่ ${photoIndex + 1}" /><figcaption>รายการ ${detailIndex + 1} · รูป ${photoIndex + 1}</figcaption></figure>`).join("")}</div>` : `<p class="print-no-photo">ไม่มีรูปหลักฐานแนบ</p>`}</section>`).join("")}
             <div class="print-corrective">
               <div><span>ผู้รับผิดชอบ</span><b>${escapeHtml(response.responsibility || "—")}</b></div>
               <div><span>กำหนดเสร็จ</span><b>${escapeHtml(response.targetDate ? formatDate(response.targetDate) : "—")}</b></div>
@@ -996,7 +1028,7 @@
       <div class="print-summary"><div>ตอบแล้ว<br><b>${stats.answered}/${stats.total}</b></div><div>คะแนน<br><b>${stats.score}/${stats.maxScore}</b></div><div>คิดเป็น<br><b>${displayPercent(stats.percent)}%</b></div><div>ผลประเมิน<br><b>${result}</b></div></div>
       ${findingsReport}
       <h2 class="print-checklist-heading">รายละเอียด Checklist ทั้งหมด</h2>
-      ${sections.map((section) => `<section class="print-section"><h2>${escapeHtml(section.title)}</h2><table class="print-table"><thead><tr><th class="print-code">ข้อ</th><th>สิ่งที่ต้องตรวจสอบ</th><th class="print-rating">ผล</th><th class="print-note">ข้อค้นพบ</th></tr></thead><tbody>${section.items.map((item) => { const response = responseFor(item.id); const photoCount = response.photos?.length || 0; const closureCount = response.closurePhotos?.length || 0; return `<tr><td>${item.id}</td><td>${escapeHtml(item.text).replace(/\n/g,"<br>")}</td><td class="print-rating">${response.rating ? RATING_LABELS[response.rating] : "—"}</td><td>${escapeHtml(response.note || "")}${photoCount ? `<small class="print-photo-count">รูปหลักฐาน ${photoCount} รูป</small>` : ""}${closureCount ? `<small class="print-photo-count">รูปหลังแก้ไข ${closureCount} รูป</small>` : ""}</td></tr>`; }).join("")}</tbody></table></section>`).join("")}`;
+      ${sections.map((section) => `<section class="print-section"><h2>${escapeHtml(section.title)}</h2><table class="print-table"><thead><tr><th class="print-code">ข้อ</th><th>สิ่งที่ต้องตรวจสอบ</th><th class="print-rating">ผล</th><th class="print-note">ข้อค้นพบ</th></tr></thead><tbody>${section.items.map((item) => { const response = responseFor(item.id); const photoCount = response.photos?.length || 0; const closureCount = response.closurePhotos?.length || 0; return `<tr><td>${item.id}</td><td>${escapeHtml(item.text).replace(/\n/g,"<br>")}</td><td class="print-rating">${response.rating ? RATING_LABELS[response.rating] : "—"}</td><td>${escapeHtml(response.note || "").replace(/\n/g,"<br>")}${photoCount ? `<small class="print-photo-count">รูปหลักฐาน ${photoCount} รูป</small>` : ""}${closureCount ? `<small class="print-photo-count">รูปหลังแก้ไข ${closureCount} รูป</small>` : ""}</td></tr>`; }).join("")}</tbody></table></section>`).join("")}`;
     const printImages = [...els.printReport.querySelectorAll("img")];
     await Promise.all(printImages.map((image) => image.complete ? Promise.resolve() : new Promise((resolve) => {
       image.addEventListener("load", resolve, { once: true });
@@ -1014,6 +1046,12 @@
   }
 
   async function completeAudit() {
+    const missingMeta = missingAuditMeta();
+    if (missingMeta.length) {
+      navigate("meta");
+      showToast(`กรุณากรอก ${missingMeta.map(([, label]) => label).join(", ")} ก่อนปิดแบบตรวจ`);
+      return;
+    }
     const stats = getStats();
     if (stats.answered < stats.total) {
       showToast(`ยังเหลือ ${stats.total - stats.answered} ข้อ กรุณาตอบให้ครบ`);
@@ -1021,11 +1059,30 @@
       navigate("checklist");
       return;
     }
-    const missingNotes = allItems.filter((item) => {
+    const missingPhotos = allItems.flatMap((item) => {
       const response = responseFor(item.id);
-      return response.rating !== "comply" && !response.note.trim();
+      if (!FINDING_RULES[response.rating]) return [];
+      const activeEntries = activeFindingEntries(response);
+      if (!activeEntries.length) return [{ item, entry: findingEntriesFor(response)[0] }];
+      return activeEntries.filter((entry) => !entry.photos.length).map((entry) => ({ item, entry }));
     });
-    if (missingNotes.length && !confirm(`มีข้อค้นพบ ${missingNotes.length} ข้อที่ยังไม่มีรายละเอียด ต้องการเสร็จสิ้นต่อหรือไม่?`)) {
+    if (missingPhotos.length) {
+      defectEntryMode = true;
+      navigate("checklist");
+      requestAnimationFrame(() => {
+        const missingCard = els.checklist.querySelector(`[data-item-id="${CSS.escape(missingPhotos[0].item.id)}"]`);
+        missingCard?.scrollIntoView({ behavior: "smooth", block: "center" });
+        missingCard?.querySelector("[data-photo-file]")?.focus({ preventScroll: true });
+      });
+      showToast(`มีรายการข้อบกพร่อง ${missingPhotos.length} รายการที่ยังไม่มีรูป กรุณาแนบรูปหลักฐาน`);
+      return;
+    }
+    const missingNotes = allItems.flatMap((item) => {
+      const response = responseFor(item.id);
+      if (!FINDING_RULES[response.rating]) return [];
+      return activeFindingEntries(response).filter((entry) => !entry.note.trim()).map((entry) => ({ item, entry }));
+    });
+    if (missingNotes.length && !confirm(`มีรายการข้อบกพร่อง ${missingNotes.length} รายการที่ยังไม่มีรายละเอียด ต้องการเสร็จสิ้นต่อหรือไม่?`)) {
       defectEntryMode = true;
       navigate("checklist");
       return;
@@ -1070,6 +1127,10 @@
     els.itemSearch.addEventListener("input", () => { searchTerm = els.itemSearch.value; renderChecklist(); });
     els.findingFilter.addEventListener("change", () => { findingsOnly = els.findingFilter.checked; renderChecklist(); });
     els.checklist.addEventListener("click", async (event) => {
+      if (event.target.closest("[data-open-meta]")) {
+        navigate("meta");
+        return;
+      }
       const markRemainingButton = event.target.closest("[data-mark-remaining-comply]");
       if (markRemainingButton) {
         let marked = 0;
@@ -1094,7 +1155,37 @@
       const ratingButton = event.target.closest("[data-rating]");
       const noFindingButton = event.target.closest("[data-no-finding-item]");
       const removeButton = event.target.closest("[data-photo-remove]");
-      if (noFindingButton) {
+      const addFindingNoteButton = event.target.closest("[data-add-finding-note]");
+      const removeFindingEntryButton = event.target.closest("[data-remove-finding-entry]");
+      if (addFindingNoteButton) {
+        const response = responseFor(itemId);
+        findingEntriesFor(response).push({ id: uid(), note: "", photos: [] });
+        audit.status = "draft";
+        scheduleSave();
+        renderChecklist();
+        requestAnimationFrame(() => {
+          const textareas = els.checklist.querySelectorAll(`[data-item-id="${CSS.escape(itemId)}"] [data-finding-note]`);
+          textareas[textareas.length - 1]?.focus({ preventScroll: true });
+        });
+        showToast(`เพิ่มรายการข้อบกพร่องในข้อ ${itemId} แล้ว`);
+      } else if (removeFindingEntryButton) {
+        const response = responseFor(itemId);
+        const entries = findingEntriesFor(response);
+        if (entries.length <= 1) return;
+        const entryId = removeFindingEntryButton.closest("[data-finding-entry]")?.dataset.findingEntry;
+        const entryIndex = entries.findIndex((entry) => entry.id === entryId);
+        if (entryIndex < 0) return;
+        entries.splice(entryIndex, 1);
+        syncFindingEntries(response);
+        if (response.autoRatedFromDetail && !response.note.trim() && !response.photos.length) {
+          response.rating = null;
+          response.autoRatedFromDetail = false;
+        }
+        audit.status = "draft";
+        scheduleSave();
+        renderChecklist();
+        showToast(`ลบรายการข้อบกพร่องในข้อ ${itemId} แล้ว`);
+      } else if (noFindingButton) {
         const response = responseFor(itemId);
         response.rating = "comply";
         response.autoRatedFromDetail = false;
@@ -1114,7 +1205,11 @@
         updateAll();
       } else if (removeButton) {
         const response = responseFor(itemId);
-        response.photos.splice(Number(removeButton.dataset.photoRemove), 1);
+        const entryId = removeButton.closest("[data-finding-entry]")?.dataset.findingEntry;
+        const entry = findingEntriesFor(response).find((candidate) => candidate.id === entryId);
+        if (!entry) return;
+        entry.photos.splice(Number(removeButton.dataset.photoRemove), 1);
+        syncFindingEntries(response);
         if (response.autoRatedFromDetail && !response.note.trim() && !response.photos.length) {
           response.rating = null;
           response.autoRatedFromDetail = false;
@@ -1125,11 +1220,15 @@
       }
     });
     els.checklist.addEventListener("input", (event) => {
-      if (!event.target.matches("[data-note]")) return;
+      if (!event.target.matches("[data-finding-note]")) return;
       const itemElement = event.target.closest(".check-item");
       const itemId = itemElement.dataset.itemId;
       const response = responseFor(itemId);
-      response.note = event.target.value;
+      const entryId = event.target.closest("[data-finding-entry]")?.dataset.findingEntry;
+      const entry = findingEntriesFor(response).find((candidate) => candidate.id === entryId);
+      if (!entry) return;
+      entry.note = event.target.value;
+      syncFindingEntries(response);
       if (response.note.trim() && (!response.rating || response.rating === "comply")) {
         response.rating = "observe";
         response.autoRatedFromDetail = true;
@@ -1141,10 +1240,10 @@
         });
         const panel = itemElement.querySelector(".finding-panel");
         panel?.classList.remove("pending");
-        const panelTitle = panel?.querySelector("label > span");
-        const panelHint = panel?.querySelector("label > small");
+        const panelTitle = panel?.querySelector(".finding-detail-heading strong");
+        const panelHint = panel?.querySelector(".finding-detail-heading small");
         if (panelTitle) panelTitle.textContent = "รายละเอียดข้อบกพร่อง / สิ่งที่ตรวจพบ";
-        if (panelHint) panelHint.textContent = "ระบบบันทึกข้อมูลนี้อัตโนมัติ";
+        if (panelHint) panelHint.textContent = "เพิ่มรายละเอียดการพบปัญหาในข้อเดียวกันได้มากกว่า 1 รายการ";
       } else if (!response.note.trim() && response.autoRatedFromDetail && !response.photos.length) {
         response.rating = null;
         response.autoRatedFromDetail = false;
@@ -1154,11 +1253,16 @@
         });
         const panel = itemElement.querySelector(".finding-panel");
         panel?.classList.add("pending");
-        const panelTitle = panel?.querySelector("label > span");
-        const panelHint = panel?.querySelector("label > small");
+        const panelTitle = panel?.querySelector(".finding-detail-heading strong");
+        const panelHint = panel?.querySelector(".finding-detail-heading small");
         if (panelTitle) panelTitle.textContent = "พบข้อบกพร่อง? กรอกรายละเอียดได้ทันที";
         if (panelHint) panelHint.textContent = "เมื่อเริ่มกรอก ระบบจะเลือกระดับ Observe ให้อัตโนมัติ";
       }
+      const entryElement = event.target.closest("[data-finding-entry]");
+      const entryMissingPhoto = Boolean(FINDING_RULES[response.rating] && (entry.note.trim() || entry.photos.length) && !entry.photos.length);
+      entryElement?.classList.toggle("missing-photo", entryMissingPhoto);
+      entryElement?.querySelector(".photo-requirement")?.classList.toggle("missing", entryMissingPhoto);
+      itemElement.querySelector(".finding-panel")?.classList.toggle("photo-required", Boolean(FINDING_RULES[response.rating] && activeFindingEntries(response).some((candidate) => !candidate.photos.length)));
       invalidateSectionConfirmation(currentStep);
       audit.status = "draft";
       scheduleSave();
@@ -1169,12 +1273,16 @@
     els.checklist.addEventListener("change", async (event) => {
       if (!event.target.matches("[data-photo], [data-photo-file]") || !event.target.files?.length) return;
       const itemId = event.target.closest(".check-item").dataset.itemId;
+      const entryId = event.target.closest("[data-finding-entry]")?.dataset.findingEntry;
       const files = [...event.target.files];
       try {
         showToast(`กำลังย่อและแนบรูป ${files.length} รูป...`);
         const photos = await Promise.all(files.map(compressImage));
         const response = responseFor(itemId);
-        response.photos.push(...photos);
+        const entry = findingEntriesFor(response).find((candidate) => candidate.id === entryId);
+        if (!entry) throw new Error("Finding entry not found");
+        entry.photos.push(...photos);
+        syncFindingEntries(response);
         if (!response.rating || response.rating === "comply") {
           response.rating = "observe";
           response.autoRatedFromDetail = true;
