@@ -419,7 +419,7 @@
 
   function renderNav() {
     const metaActive = currentStep === "meta";
-    const checklistActive = sections.some((section) => section.id === currentStep);
+    const checklistActive = currentStep === "checklist";
     const metaComplete = ["site", "department", "area", "auditDate", "auditor"].every((key) => audit.meta[key]);
     const findings = getFindings();
     const openFindings = findings.filter(({ response }) => response.actionStatus !== "closed").length;
@@ -431,11 +431,6 @@
       `<button class="nav-item nav-main print-nav" data-nav-action="print-blank" data-short="พิมพ์ฟอร์ม"><span class="nav-number">▤</span><span class="nav-label">พิมพ์ฟอร์มเปล่า</span><span class="nav-progress">พร้อมพิมพ์</span></button>`,
       `<button class="nav-item nav-main admin-nav ${currentStep === "admin" ? "active" : ""}" data-step="admin" data-short="Admin"><span class="nav-number">${isAdmin ? "⚙" : "▣"}</span><span class="nav-label">ผู้ดูแลระบบ</span><span class="nav-progress">${isAdmin ? "เข้าใช้งาน" : "ล็อก"}</span></button>`,
     ];
-    sections.forEach((section) => {
-      const stats = getStats(section.items);
-      const sectionConfirmed = Boolean(audit.sectionConfirmations?.[section.id]);
-      items.push(`<button class="nav-item ${currentStep === section.id ? "active" : ""} ${sectionConfirmed ? "complete" : ""}" data-step="${section.id}" data-short="${escapeHtml(sectionShortTitle(section))}"><span class="nav-number">${section.id}</span><span class="nav-label">${escapeHtml(sectionShortTitle(section))}</span><span class="nav-progress">${sectionConfirmed ? "ยืนยันแล้ว" : `${stats.answered}/${stats.total}`}</span></button>`);
-    });
     els.sectionNav.innerHTML = items.join("");
   }
 
@@ -712,93 +707,97 @@
         if (key === "site" || key === "department") updateAll({ checklist: false });
       });
     });
-    $("startAuditButton").addEventListener("click", () => navigate(sections[0].id));
+    $("startAuditButton").textContent = "เริ่มกรอกข้อบกพร่อง →";
+    $("startAuditButton").addEventListener("click", enterDefectEntry);
   }
 
   function renderChecklist() {
-    const section = sections.find((entry) => entry.id === currentStep);
-    if (!section) return;
-    const stats = getStats(section.items);
+    const stats = getStats();
     const remaining = stats.total - stats.answered;
-    const sectionConfirmed = Boolean(audit.sectionConfirmations?.[section.id]);
-    const nextSection = sections[sections.findIndex((entry) => entry.id === section.id) + 1];
-    const unansweredWithoutFinding = section.items.filter((item) => {
+    const unansweredWithoutFinding = allItems.filter((item) => {
       const response = responseFor(item.id);
       return !response.rating && !response.note.trim() && !response.photos.length;
     }).length;
-    els.sectionEyebrow.textContent = `หมวดที่ ${section.id} จาก ${sections.length}`;
-    els.sectionTitle.textContent = section.title.replace(/^\d+\.\s*/, "");
-    els.sectionSubtitle.textContent = `${section.items.length} ข้อ · คะแนนเต็ม ${section.items.length * 2}`;
+    els.sectionEyebrow.textContent = `แบบตรวจทั้งหมด · ${sections.length} หมวด`;
+    els.sectionTitle.textContent = "กรอกข้อบกพร่องที่พบก่อน";
+    els.sectionSubtitle.textContent = `แสดงข้อกำหนดทั้งหมด ${allItems.length} ข้อในหน้าเดียว`;
     els.sectionScore.innerHTML = `<strong>${stats.score.toFixed(Number.isInteger(stats.score) ? 0 : 1)} / ${stats.maxScore}</strong><span>${stats.answered}/${stats.total} ข้อ · ${displayPercent(stats.percent)}%</span>`;
 
     const normalizedSearch = searchTerm.trim().toLocaleLowerCase("th");
-    const visible = section.items.filter((item) => {
-      const response = responseFor(item.id);
-      const matchesSearch = !normalizedSearch || `${item.id} ${item.text}`.toLocaleLowerCase("th").includes(normalizedSearch);
-      const matchesFinding = !findingsOnly || (response.rating && response.rating !== "comply");
-      return matchesSearch && matchesFinding;
-    });
+    const visibleSections = sections.map((section) => ({
+      section,
+      items: section.items.filter((item) => {
+        const response = responseFor(item.id);
+        const matchesSearch = !normalizedSearch || `${item.id} ${item.text}`.toLocaleLowerCase("th").includes(normalizedSearch);
+        const matchesFinding = !findingsOnly || (response.rating && response.rating !== "comply");
+        return matchesSearch && matchesFinding;
+      }),
+    })).filter(({ items }) => items.length);
 
-    els.checklist.innerHTML = `<section class="quick-audit-bar ${defectEntryMode ? "defect-entry-mode" : ""}">
-      <div><strong>${defectEntryMode ? "โหมดกรอกข้อบกพร่อง" : "กรอกเฉพาะข้อที่พบ"}</strong><span>พิมพ์รายละเอียดข้อบกพร่องได้ทันที ระบบจะบันทึกเป็น Observe อัตโนมัติ แล้วสามารถเปลี่ยนเป็น Minor หรือ Major ได้</span></div>
-      <button type="button" class="button secondary" data-mark-remaining-comply ${unansweredWithoutFinding ? "" : "disabled"}>✓ ไม่พบข้อบกพร่องในรายการที่เหลือ</button>
-    </section>` + visible.map((item) => {
-      const response = responseFor(item.id);
-      const isFinding = response.rating && response.rating !== "comply";
-      const hasFindingDetail = Boolean(response.note.trim() || response.photos.length);
-      const showFindingPanel = defectEntryMode || !response.rating || isFinding || hasFindingDetail;
-      const scoreProfile = profile();
-      return `<article class="check-item" data-item-id="${item.id}">
-        <div class="check-main">
-          <span class="item-code">${item.id}</span>
-          <div>
-            <p class="item-text">${escapeHtml(item.text).replace(/\n/g, "<br>")}</p>
-            <div class="rating-group" role="radiogroup" aria-label="ผลการตรวจข้อ ${item.id}">
-              ${Object.keys(RATING_LABELS).map((rating) => `<button type="button" role="radio" aria-checked="${response.rating === rating}" class="rating-button ${response.rating === rating ? "selected" : ""}" data-rating="${rating}"><i class="dot ${rating}"></i>${RATING_LABELS[rating]} <span class="rating-score">${scoreProfile[rating]}</span></button>`).join("")}
+    const scoreProfile = profile();
+    const sectionHtml = visibleSections.map(({ section, items }) => {
+      const sectionStats = getStats(section.items);
+      const itemHtml = items.map((item) => {
+        const response = responseFor(item.id);
+        const isFinding = response.rating && response.rating !== "comply";
+        const hasFindingDetail = Boolean(response.note.trim() || response.photos.length);
+        const showFindingPanel = defectEntryMode || !response.rating || isFinding || hasFindingDetail;
+        return `<article class="check-item" data-item-id="${item.id}">
+          <div class="check-main">
+            <span class="item-code">${item.id}</span>
+            <div>
+              <p class="item-text">${escapeHtml(item.text).replace(/\n/g, "<br>")}</p>
+              <div class="rating-group" role="radiogroup" aria-label="ผลการตรวจข้อ ${item.id}">
+                ${Object.keys(RATING_LABELS).map((rating) => `<button type="button" role="radio" aria-checked="${response.rating === rating}" class="rating-button ${response.rating === rating ? "selected" : ""}" data-rating="${rating}"><i class="dot ${rating}"></i>${RATING_LABELS[rating]} <span class="rating-score">${scoreProfile[rating]}</span></button>`).join("")}
+              </div>
             </div>
           </div>
-        </div>
-        <div class="finding-panel ${!response.rating ? "pending" : ""}" ${showFindingPanel ? "" : "hidden"}>
-          <label><span>${isFinding ? "รายละเอียดข้อบกพร่อง / สิ่งที่ตรวจพบ" : "พบข้อบกพร่อง? กรอกรายละเอียดได้ทันที"}</span>
-            <small>${isFinding ? "ระบบบันทึกข้อมูลนี้อัตโนมัติ" : "เมื่อเริ่มกรอก ระบบจะเลือกระดับ Observe ให้อัตโนมัติ"}</small>
-            <textarea data-note placeholder="ระบุสิ่งที่พบ ตำแหน่ง และผู้รับผิดชอบ...">${escapeHtml(response.note)}</textarea>
-          </label>
-          ${!response.rating ? `<button type="button" class="no-finding-button" data-no-finding-item>✓ ไม่พบข้อบกพร่อง — ลง Comply</button>` : ""}
-          <div class="attachment-row">
-            <label class="attach-button camera-button">📷 ถ่ายรูป<input type="file" accept="image/*" capture="environment" data-photo /></label>
-            <label class="attach-button file-button">🖼 เลือกรูปจากเครื่อง/ไฟล์<input type="file" accept="image/*" multiple data-photo-file /></label>
-            ${(response.photos || []).map((photo, index) => `<span class="photo-wrap"><img class="photo-thumb" src="${photo}" alt="รูปแนบข้อ ${item.id}" /><button type="button" class="photo-remove" data-photo-remove="${index}" aria-label="ลบรูป">×</button></span>`).join("")}
+          <div class="finding-panel ${!response.rating ? "pending" : ""}" ${showFindingPanel ? "" : "hidden"}>
+            <label><span>${isFinding ? "รายละเอียดข้อบกพร่อง / สิ่งที่ตรวจพบ" : "พบข้อบกพร่อง? กรอกรายละเอียดได้ทันที"}</span>
+              <small>${isFinding ? "ระบบบันทึกข้อมูลนี้อัตโนมัติ" : "เมื่อเริ่มกรอก ระบบจะเลือกระดับ Observe ให้อัตโนมัติ"}</small>
+              <textarea data-note placeholder="ระบุสิ่งที่พบ ตำแหน่ง และผู้รับผิดชอบ...">${escapeHtml(response.note)}</textarea>
+            </label>
+            ${!response.rating ? `<button type="button" class="no-finding-button" data-no-finding-item>✓ ไม่พบข้อบกพร่อง — ลง Comply</button>` : ""}
+            <div class="attachment-row">
+              <label class="attach-button camera-button">📷 ถ่ายรูป<input type="file" accept="image/*" capture="environment" data-photo /></label>
+              <label class="attach-button file-button">🖼 เลือกรูปจากเครื่อง/ไฟล์<input type="file" accept="image/*" multiple data-photo-file /></label>
+              ${(response.photos || []).map((photo, index) => `<span class="photo-wrap"><img class="photo-thumb" src="${photo}" alt="รูปแนบข้อ ${item.id}" /><button type="button" class="photo-remove" data-photo-remove="${index}" aria-label="ลบรูป">×</button></span>`).join("")}
+            </div>
           </div>
-        </div>
-      </article>`;
-    }).join("") + `<section class="section-confirm-row ${sectionConfirmed ? "confirmed" : ""}">
-      <div><strong>${sectionConfirmed ? `หมวด ${section.id} ยืนยันแล้ว` : remaining ? `เหลืออีก ${remaining} ข้อ` : "กรอกครบทุกข้อแล้ว"}</strong><span>${remaining ? "กรุณาตอบข้อย่อยให้ครบก่อนยืนยันหมวด" : "ตรวจสอบคำตอบทั้งหมด แล้วกดยืนยันเพียงครั้งเดียว"}</span></div>
-      <button type="button" class="button ${sectionConfirmed ? "secondary" : "primary"}" data-confirm-section="${section.id}" ${remaining ? "disabled" : ""}>${sectionConfirmed ? "ยืนยันหมวดนี้อีกครั้ง" : `ยืนยันหมวด ${section.id}`} ${nextSection ? `และไปหมวด ${nextSection.id} →` : "และดูสรุปผล →"}</button>
+        </article>`;
+      }).join("");
+      return `<section class="checklist-section-block" data-section-id="${section.id}">
+        <header><div><span>หมวด ${section.id}</span><h3>${escapeHtml(section.title.replace(/^\d+\.\s*/, ""))}</h3></div><b data-section-summary="${section.id}">${sectionStats.answered}/${sectionStats.total} ข้อ</b></header>
+        <div class="checklist-section-items">${itemHtml}</div>
+      </section>`;
+    }).join("");
+
+    els.checklist.innerHTML = `<section class="quick-audit-bar defect-entry-mode">
+      <div><strong>ขั้นตอนที่ 1 · กรอกข้อบกพร่องที่พบ</strong><span>กรอกรายละเอียดหรือแนบรูป ระบบจะบันทึกเป็น Observe อัตโนมัติ และสามารถเปลี่ยนเป็น Minor หรือ Major ได้</span></div>
+      <button type="button" class="button secondary" data-mark-remaining-comply ${unansweredWithoutFinding ? "" : "disabled"}>ขั้นตอนที่ 2 · ไม่พบข้อบกพร่องเพิ่มเติม — ลง Comply ที่เหลือ</button>
+    </section>${sectionHtml}<section class="section-confirm-row">
+      <div><strong data-checklist-status>${remaining ? `เหลือ ${remaining} ข้อที่ยังไม่ลงผล` : "กรอกผลครบทุกข้อแล้ว"}</strong><span>ตรวจข้อบกพร่องให้ครบก่อน แล้วกดลง Comply ให้รายการที่เหลือทั้งหมดเพียงครั้งเดียว</span></div>
+      <button type="button" class="button primary" data-mark-remaining-comply ${unansweredWithoutFinding ? "" : "disabled"}>✓ ยืนยันไม่พบข้อบกพร่องเพิ่มเติม และลง Comply ที่เหลือ</button>
     </section>`;
-    els.emptyState.hidden = visible.length > 0;
+    els.emptyState.hidden = visibleSections.length > 0;
   }
 
-  function refreshCurrentSectionProgress(section) {
-    const stats = getStats(section.items);
+  function refreshChecklistProgress() {
+    const stats = getStats();
     const remaining = stats.total - stats.answered;
-    const sectionConfirmed = Boolean(audit.sectionConfirmations?.[section.id]);
-    const nextSection = sections[sections.findIndex((entry) => entry.id === section.id) + 1];
     els.sectionScore.innerHTML = `<strong>${stats.score.toFixed(Number.isInteger(stats.score) ? 0 : 1)} / ${stats.maxScore}</strong><span>${stats.answered}/${stats.total} ข้อ · ${displayPercent(stats.percent)}%</span>`;
-    const confirmRow = els.checklist.querySelector(".section-confirm-row");
-    if (!confirmRow) return;
-    confirmRow.classList.toggle("confirmed", sectionConfirmed);
-    confirmRow.querySelector("strong").textContent = sectionConfirmed ? `หมวด ${section.id} ยืนยันแล้ว` : remaining ? `เหลืออีก ${remaining} ข้อ` : "กรอกครบทุกข้อแล้ว";
-    confirmRow.querySelector("span").textContent = remaining ? "กรุณาตอบข้อย่อยให้ครบก่อนยืนยันหมวด" : "ตรวจสอบคำตอบทั้งหมด แล้วกดยืนยันเพียงครั้งเดียว";
-    const confirmButton = confirmRow.querySelector("[data-confirm-section]");
-    confirmButton.disabled = remaining > 0;
-    confirmButton.textContent = `${sectionConfirmed ? "ยืนยันหมวดนี้อีกครั้ง" : `ยืนยันหมวด ${section.id}`} ${nextSection ? `และไปหมวด ${nextSection.id} →` : "และดูสรุปผล →"}`;
-    const markRemainingButton = els.checklist.querySelector("[data-mark-remaining-comply]");
-    if (markRemainingButton) {
-      markRemainingButton.disabled = !section.items.some((item) => {
-        const response = responseFor(item.id);
-        return !response.rating && !response.note.trim() && !response.photos.length;
-      });
-    }
+    sections.forEach((section) => {
+      const summary = els.checklist.querySelector(`[data-section-summary="${CSS.escape(section.id)}"]`);
+      const sectionStats = getStats(section.items);
+      if (summary) summary.textContent = `${sectionStats.answered}/${sectionStats.total} ข้อ`;
+    });
+    const hasUnanswered = allItems.some((item) => {
+      const response = responseFor(item.id);
+      return !response.rating && !response.note.trim() && !response.photos.length;
+    });
+    els.checklist.querySelectorAll("[data-mark-remaining-comply]").forEach((button) => { button.disabled = !hasUnanswered; });
+    const status = els.checklist.querySelector("[data-checklist-status]");
+    if (status) status.textContent = remaining ? `เหลือ ${remaining} ข้อที่ยังไม่ลงผล` : "กรอกผลครบทุกข้อแล้ว";
   }
 
   function updateSummary() {
@@ -827,7 +826,8 @@
     if (currentStep === "dashboard") els.mobileNextButton.textContent = "กรอกแบบตรวจ";
     else if (currentStep === "defects") els.mobileNextButton.textContent = "กลับ Dashboard";
     else if (currentStep === "admin") els.mobileNextButton.textContent = "กลับ Dashboard";
-    else els.mobileNextButton.textContent = currentStep === "meta" ? "เริ่มตรวจ" : currentStep === sections.at(-1).id ? "สรุปผล" : "หมวดถัดไป";
+    else if (currentStep === "checklist") els.mobileNextButton.textContent = "กลับ Dashboard";
+    else els.mobileNextButton.textContent = currentStep === "meta" ? "เริ่มกรอกข้อบกพร่อง" : "กลับ Dashboard";
   }
 
   function updateAll({ checklist = true } = {}) {
@@ -840,7 +840,7 @@
     updateSummary();
   }
   function navigate(step) {
-    if (!sections.some((section) => section.id === step)) defectEntryMode = false;
+    if (step !== "checklist") defectEntryMode = false;
     currentStep = step;
     searchTerm = "";
     findingsOnly = false;
@@ -862,10 +862,9 @@
       showToast("กรุณากรอกข้อมูลการตรวจให้ครบก่อนกรอกข้อบกพร่อง");
       return;
     }
-    const targetSection = sections.find((section) => section.items.some((item) => !responseFor(item.id).rating)) || sections[0];
     defectEntryMode = true;
-    navigate(targetSection.id);
-    showToast("เลือกข้อที่พบ แล้วกรอกรายละเอียดข้อบกพร่องได้ทันที");
+    navigate("checklist");
+    showToast("กรอกข้อบกพร่องที่พบก่อน แล้วลง Comply ให้รายการที่เหลือครั้งเดียว");
   }
 
   async function compressImage(file) {
@@ -1017,15 +1016,9 @@
   async function completeAudit() {
     const stats = getStats();
     if (stats.answered < stats.total) {
-      const firstMissing = allItems.find((item) => !responseFor(item.id).rating);
       showToast(`ยังเหลือ ${stats.total - stats.answered} ข้อ กรุณาตอบให้ครบ`);
-      navigate(firstMissing.sectionId);
-      return;
-    }
-    const firstUnconfirmed = sections.find((section) => !audit.sectionConfirmations?.[section.id]);
-    if (firstUnconfirmed) {
-      showToast(`กรุณายืนยันหมวด ${firstUnconfirmed.id} ก่อนเสร็จสิ้นการตรวจ`);
-      navigate(firstUnconfirmed.id);
+      defectEntryMode = true;
+      navigate("checklist");
       return;
     }
     const missingNotes = allItems.filter((item) => {
@@ -1033,7 +1026,8 @@
       return response.rating !== "comply" && !response.note.trim();
     });
     if (missingNotes.length && !confirm(`มีข้อค้นพบ ${missingNotes.length} ข้อที่ยังไม่มีรายละเอียด ต้องการเสร็จสิ้นต่อหรือไม่?`)) {
-      navigate(missingNotes[0].sectionId);
+      defectEntryMode = true;
+      navigate("checklist");
       return;
     }
     audit.status = "complete";
@@ -1078,10 +1072,8 @@
     els.checklist.addEventListener("click", async (event) => {
       const markRemainingButton = event.target.closest("[data-mark-remaining-comply]");
       if (markRemainingButton) {
-        const section = sections.find((entry) => entry.id === currentStep);
-        if (!section) return;
         let marked = 0;
-        section.items.forEach((item) => {
+        allItems.forEach((item) => {
           const response = responseFor(item.id);
           if (response.rating || response.note.trim() || response.photos.length) return;
           response.rating = "comply";
@@ -1089,16 +1081,11 @@
           marked += 1;
         });
         if (!marked) return;
-        invalidateSectionConfirmation(currentStep);
+        audit.sectionConfirmations = {};
         audit.status = "draft";
         scheduleSave();
         updateAll();
         showToast(`ลง Comply อัตโนมัติ ${marked} ข้อที่ไม่พบข้อบกพร่อง`);
-        return;
-      }
-      const confirmSectionButton = event.target.closest("[data-confirm-section]");
-      if (confirmSectionButton) {
-        await confirmSectionAndAdvance(confirmSectionButton.dataset.confirmSection);
         return;
       }
       const itemElement = event.target.closest(".check-item");
@@ -1175,8 +1162,7 @@
       invalidateSectionConfirmation(currentStep);
       audit.status = "draft";
       scheduleSave();
-      const section = sections.find((entry) => entry.id === currentStep);
-      if (section) refreshCurrentSectionProgress(section);
+      refreshChecklistProgress();
       renderNav();
       updateSummary();
     });
@@ -1462,8 +1448,8 @@
       if (currentStep === "dashboard") navigate("meta");
       else if (currentStep === "defects") navigate("dashboard");
       else if (currentStep === "admin") navigate("dashboard");
-      else if (currentStep === "meta") navigate(sections[0].id);
-      else await confirmSectionAndAdvance(currentStep);
+      else if (currentStep === "meta") enterDefectEntry();
+      else navigate("dashboard");
     });
     els.historyButton.addEventListener("click", showHistory);
     els.historyList.addEventListener("click", async (event) => {
