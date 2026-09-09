@@ -44,7 +44,7 @@
     },
   };
   const SITE_ZONE_DATA_VERSION = 2;
-  const SITE_ZONE_CHECKLIST_TYPES = {
+  const DEFAULT_SITE_ZONE_CHECKLIST_TYPES = {
     [BANGPHLI_SITE]: {
       "Zone 1": "production", "Zone 2": "production", "Zone 3": "production", "Zone 4": "production",
       "Zone 5": "production", "Zone 6": "production", "Zone 7": "production", "Zone 8": "production",
@@ -52,7 +52,7 @@
       "Zone 13": "outside", "Zone 14": "warehouse", "Zone 15": "warehouse", "Zone 16": "outside",
     },
     [THEPHARAK_SITE]: {
-      "Zone 1": "warehouse", "Zone 2": "outdoor", "Zone 3": "production", "Zone 4": "production",
+      "Zone 1": "warehouse", "Zone 2": "outside", "Zone 3": "production", "Zone 4": "production",
       "Zone 5": "production", "Zone 6": "production", "Zone 7": "warehouse", "Zone 8": "outside",
       "Zone 9": "warehouse", "Zone 10": "outside",
     },
@@ -66,6 +66,7 @@
   let sections = checklistSets.production.sections;
   let masterData = JSON.parse(JSON.stringify(DEFAULT_MASTER_DATA));
   let siteZoneLocations = JSON.parse(JSON.stringify(DEFAULT_SITE_ZONE_LOCATIONS));
+  let siteZoneChecklistTypes = JSON.parse(JSON.stringify(DEFAULT_SITE_ZONE_CHECKLIST_TYPES));
   let allItems = [];
   const PASS_THRESHOLD = 87;
   const PROFILES = {
@@ -91,6 +92,7 @@
   let currentStep = "dashboard";
   let searchTerm = "";
   let findingsOnly = false;
+  let dashboardMonthFilter = "all";
   let defectEntryMode = false;
   let saveTimer;
   let checklistSaveTimer;
@@ -156,7 +158,7 @@
     return zoneLocationsForSite(entry.meta.site)?.[entry.meta.department] || [];
   }
   function checklistTypeForZone(entry = audit) {
-    return SITE_ZONE_CHECKLIST_TYPES[entry?.meta?.site]?.[entry?.meta?.department] || null;
+    return siteZoneChecklistTypes[entry?.meta?.site]?.[entry?.meta?.department] || null;
   }
   function uid() {
     return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -168,6 +170,16 @@
   function formatDate(value) {
     if (!value) return "ยังไม่ระบุวันที่";
     return new Intl.DateTimeFormat("th-TH", { dateStyle: "medium" }).format(new Date(`${value}T00:00:00`));
+  }
+  function auditMonthFor(entry) {
+    const savedMonth = entry?.meta?.auditMonth;
+    if (/^\d{4}-\d{2}$/.test(savedMonth || "")) return savedMonth;
+    const auditDate = entry?.meta?.auditDate;
+    return /^\d{4}-\d{2}-\d{2}$/.test(auditDate || "") ? auditDate.slice(0, 7) : "unspecified";
+  }
+  function formatAuditMonth(value) {
+    if (value === "unspecified") return "ไม่ระบุเดือนตรวจ";
+    return new Intl.DateTimeFormat("th-TH", { month: "long", year: "numeric" }).format(new Date(`${value}-01T00:00:00`));
   }
   function sectionShortTitle(section) {
     const clean = section.title.replace(/^\d+\.\s*/, "").trim();
@@ -265,15 +277,12 @@
       });
     }
     if (saved?.siteZoneLocations && typeof saved.siteZoneLocations === "object") {
-      Object.keys(DEFAULT_SITE_ZONE_LOCATIONS).forEach((site) => {
-        if (!saved.siteZoneLocations[site] || typeof saved.siteZoneLocations[site] !== "object") return;
+      Object.entries(saved.siteZoneLocations).forEach(([site, savedZones]) => {
+        if (!savedZones || typeof savedZones !== "object") return;
         if (site === THEPHARAK_SITE && saved.siteZoneDataVersion !== SITE_ZONE_DATA_VERSION) return;
-        Object.keys(DEFAULT_SITE_ZONE_LOCATIONS[site]).forEach((zone) => {
-          if (Array.isArray(saved.siteZoneLocations[site][zone])) {
-            const locations = saved.siteZoneLocations[site][zone];
-            siteZoneLocations[site][zone] = site === BANGPHLI_SITE ? locations.map(normalizeBangphliAreaLabel) : locations;
-          }
-        });
+        siteZoneLocations[site] = Object.fromEntries(Object.entries(savedZones)
+          .filter(([, locations]) => Array.isArray(locations))
+          .map(([zone, locations]) => [zone, site === BANGPHLI_SITE ? locations.map(normalizeBangphliAreaLabel) : locations]));
       });
     } else if (saved?.zoneLocations && typeof saved.zoneLocations === "object") {
       Object.keys(DEFAULT_SITE_ZONE_LOCATIONS[THEPHARAK_SITE]).forEach((zone) => {
@@ -282,10 +291,22 @@
         }
       });
     }
+    if (saved?.siteZoneChecklistTypes && typeof saved.siteZoneChecklistTypes === "object") {
+      Object.entries(saved.siteZoneChecklistTypes).forEach(([site, zoneTypes]) => {
+        if (!zoneTypes || typeof zoneTypes !== "object") return;
+        siteZoneChecklistTypes[site] = { ...(siteZoneChecklistTypes[site] || {}), ...zoneTypes };
+      });
+    }
+    Object.entries(siteZoneLocations).forEach(([site, zones]) => {
+      if (!siteZoneChecklistTypes[site]) siteZoneChecklistTypes[site] = {};
+      Object.keys(zones).forEach((zone) => {
+        if (!checklistSets[siteZoneChecklistTypes[site][zone]]) siteZoneChecklistTypes[site][zone] = "production";
+      });
+    });
     activateChecklist(activeChecklistType);
   }
   async function saveChecklistSettings() {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ checklists: checklistSets, masterData, siteZoneLocations, siteZoneDataVersion: SITE_ZONE_DATA_VERSION, updatedAt: new Date().toISOString() }));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ checklists: checklistSets, masterData, siteZoneLocations, siteZoneChecklistTypes, siteZoneDataVersion: SITE_ZONE_DATA_VERSION, updatedAt: new Date().toISOString() }));
   }
   function scheduleChecklistSave() {
     els.saveStatus.classList.add("saving");
@@ -533,19 +554,33 @@
           ${findings.length ? `<div class="closure-progress"><div><span>การปิดข้อบกพร่อง</span><b>${closedFindings}/${findings.length}</b></div><div class="metric-progress"><i style="width:${Math.round((closedFindings / findings.length) * 100)}%"></i></div></div>` : `<div class="dashboard-empty compact">ยังไม่พบ Major, Minor หรือ Observe</div>`}
         </article>
         <article class="dashboard-card recent-card">
-          <div class="card-heading"><div><span class="eyebrow">On this device</span><h3>แบบตรวจล่าสุด</h3></div><button type="button" class="text-button" data-dashboard-action="history">ดูทั้งหมด</button></div>
+          <div class="card-heading"><div><span class="eyebrow">On this device</span><h3>แบบตรวจล่าสุด</h3></div><div class="recent-card-controls"><label>เดือนตรวจ<select id="dashboardMonthFilter" aria-label="กรองตามเดือนตรวจ"><option value="all">ทุกเดือน</option></select></label><button type="button" class="text-button" data-dashboard-action="history">ดูทั้งหมด</button></div></div>
           <div id="dashboardRecent" class="dashboard-recent"><div class="dashboard-empty compact">กำลังโหลด...</div></div>
         </article>
       </section>`;
     try {
       const audits = await listAudits();
       if (currentStep !== "dashboard") return;
-      const recent = audits.slice(0, 4);
-      $("dashboardRecent").innerHTML = recent.length ? recent.map((entry) => {
+      const monthValues = [...new Set(audits.map(auditMonthFor))].sort((a, b) => b.localeCompare(a));
+      if (dashboardMonthFilter !== "all" && !monthValues.includes(dashboardMonthFilter)) dashboardMonthFilter = "all";
+      const monthFilter = $("dashboardMonthFilter");
+      monthFilter.innerHTML = `<option value="all">ทุกเดือน (${audits.length})</option>${monthValues.map((month) => `<option value="${escapeHtml(month)}" ${dashboardMonthFilter === month ? "selected" : ""}>${escapeHtml(formatAuditMonth(month))} (${audits.filter((entry) => auditMonthFor(entry) === month).length})</option>`).join("")}`;
+      monthFilter.disabled = !audits.length;
+      const filteredAudits = dashboardMonthFilter === "all" ? audits : audits.filter((entry) => auditMonthFor(entry) === dashboardMonthFilter);
+      const recent = dashboardMonthFilter === "all" ? filteredAudits.slice(0, 12) : filteredAudits;
+      const recentGroups = recent.reduce((groups, entry) => {
+        const month = auditMonthFor(entry);
+        if (!groups.has(month)) groups.set(month, []);
+        groups.get(month).push(entry);
+        return groups;
+      }, new Map());
+      const recentAuditHtml = (entry) => {
         const entrySummary = entryStats(entry);
         const entryFindings = entrySummary.counts.major + entrySummary.counts.minor + entrySummary.counts.observe;
-        return `<button type="button" class="recent-audit ${entry.id === audit.id ? "active" : ""}" data-audit-id="${escapeHtml(entry.id)}"><span class="recent-date">${escapeHtml(formatDate(entry.meta?.auditDate))}</span><span><b>${escapeHtml(entry.meta?.area || "ยังไม่ระบุพื้นที่")}</b><small>${escapeHtml(auditTypeLabel(entry.meta?.auditType))} · ${escapeHtml(entry.meta?.site || "ยังไม่ระบุ Site")} · ${escapeHtml(entry.meta?.department || "—")} · ${entrySummary.answered}/${entrySummary.total} ข้อ</small></span><span class="recent-result"><b>${displayPercent(entrySummary.percent)}${entrySummary.percent === null ? "" : "%"}</b><small>${entryFindings} ข้อพบ</small></span></button>`;
-      }).join("") : `<div class="dashboard-empty compact">ยังไม่มีแบบตรวจ</div>`;
+        return `<article class="recent-audit ${entry.id === audit.id ? "active" : ""}" data-audit-id="${escapeHtml(entry.id)}"><button type="button" class="recent-audit-open" data-recent-action="open" aria-label="เปิดแบบตรวจ ${escapeHtml(entry.meta?.area || "ยังไม่ระบุพื้นที่")}"><span class="recent-date">${escapeHtml(formatDate(entry.meta?.auditDate))}</span><span><b>${escapeHtml(entry.meta?.area || "ยังไม่ระบุพื้นที่")}</b><small>${escapeHtml(auditTypeLabel(entry.meta?.auditType))} · ${escapeHtml(entry.meta?.site || "ยังไม่ระบุ Site")} · ${escapeHtml(entry.meta?.department || "—")} · ${entrySummary.answered}/${entrySummary.total} ข้อ</small></span><span class="recent-result"><b>${displayPercent(entrySummary.percent)}${entrySummary.percent === null ? "" : "%"}</b><small>${entryFindings} ข้อพบ</small></span></button><div class="recent-audit-actions"><button type="button" class="recent-edit-button" data-recent-action="edit">แก้ไข</button><button type="button" class="recent-delete-button" data-recent-action="delete">ลบ</button></div></article>`;
+      };
+      const sortedRecentGroups = [...recentGroups.entries()].sort(([monthA], [monthB]) => monthA === "unspecified" ? 1 : monthB === "unspecified" ? -1 : monthB.localeCompare(monthA));
+      $("dashboardRecent").innerHTML = recent.length ? sortedRecentGroups.map(([month, monthAudits]) => `<section class="recent-month-group"><header><h4>${escapeHtml(formatAuditMonth(month))}</h4><span>${monthAudits.length} แบบตรวจ</span></header><div>${monthAudits.map(recentAuditHtml).join("")}</div></section>`).join("") : `<div class="dashboard-empty compact">${audits.length ? "ไม่พบแบบตรวจในเดือนที่เลือก" : "ยังไม่มีแบบตรวจ"}</div>`;
     } catch (error) {
       console.error(error);
     }
@@ -600,6 +635,13 @@
     return `${section.id}.${sequence}`;
   }
 
+  function nextZoneName(site) {
+    const numbers = Object.keys(siteZoneLocations[site] || {})
+      .map((zone) => Number(zone.match(/^Zone\s+(\d+)$/i)?.[1]))
+      .filter(Number.isFinite);
+    return `Zone ${(numbers.length ? Math.max(...numbers) : 0) + 1}`;
+  }
+
   async function renderAdmin() {
     if (!isAdmin) {
       els.adminView.innerHTML = `<section class="admin-login-card">
@@ -625,7 +667,7 @@
       <section class="admin-checklist-picker"><label class="field"><span>เลือกชุดคำถามที่ต้องการจัดการ</span><select data-admin-checklist-type>${Object.entries(checklistSets).map(([type, checklist]) => `<option value="${escapeHtml(type)}" ${adminChecklistType === type ? "selected" : ""}>${escapeHtml(checklist.label)} · ${itemsForType(type).length} ข้อ</option>`).join("")}</select></label></section>
       <section class="admin-toolbar"><div><h3>จัดการคำถาม · ${escapeHtml(auditTypeLabel(adminChecklistType))}</h3><p>แก้ข้อความ เพิ่ม หรือลบคำถามในชุดที่เลือกได้ทันที</p></div><div><button type="button" class="button secondary" data-admin-action="export">สำรองข้อมูลระบบ</button><button type="button" class="button secondary" data-admin-action="reset">คืนคำถามเริ่มต้น</button><button type="button" class="button primary" data-admin-action="add-section">+ เพิ่มหมวด</button></div></section>
       <section class="admin-master-card"><div class="card-heading"><div><span class="eyebrow">Master data</span><h3>ตัวเลือกข้อมูลการตรวจประเมิน</h3><p>รายการ Site จะแสดงเสมอ ส่วนแผนกและพื้นที่ชุดนี้ใช้สำหรับ Site อื่นที่ไม่ใช่โรงงานเทพารักษ์</p></div></div><div class="admin-master-grid">${Object.keys(MASTER_LABELS).map((key) => `<section data-master-key="${key}"><header><h4>${MASTER_LABELS[key]}</h4><button type="button" data-admin-action="add-master">+ เพิ่ม</button></header><div>${masterData[key].map((value, index) => `<label data-master-index="${index}"><input data-master-value value="${escapeHtml(value)}" aria-label="${MASTER_LABELS[key]} ${index + 1}" /><button type="button" class="admin-delete-button" data-admin-action="delete-master">ลบ</button></label>`).join("")}</div></section>`).join("")}</div></section>
-      ${Object.entries(siteZoneLocations).map(([site, zones]) => `<section class="admin-master-card admin-zone-card" data-zone-site="${escapeHtml(site)}"><div class="card-heading"><div><span class="eyebrow">Site zones</span><h3>Zone Location · ${escapeHtml(site)}</h3><p>แก้ไขรายการพื้นที่ตรวจที่จะแสดงหลังผู้ตรวจเลือก Zone ของโรงงานนี้</p></div></div><div class="admin-master-grid">${Object.entries(zones).map(([zone, locations]) => `<section data-zone-key="${escapeHtml(zone)}"><header><h4>${escapeHtml(zone)}</h4><button type="button" data-admin-action="add-zone-location">+ เพิ่ม</button></header><div>${locations.map((value, index) => `<label data-zone-index="${index}"><input data-zone-location-value value="${escapeHtml(value)}" aria-label="${escapeHtml(site)} ${escapeHtml(zone)} พื้นที่ ${index + 1}" /><button type="button" class="admin-delete-button" data-admin-action="delete-zone-location">ลบ</button></label>`).join("")}</div></section>`).join("")}</div></section>`).join("")}
+      ${[...new Set([...masterData.sites, ...Object.keys(siteZoneLocations)])].map((site) => { const zones = siteZoneLocations[site] || {}; return `<section class="admin-master-card admin-zone-card" data-zone-site="${escapeHtml(site)}"><div class="card-heading"><div><span class="eyebrow">Site zones</span><h3>Zone Location · ${escapeHtml(site)}</h3><p>เพิ่ม Zone เลือกชุดคำถาม และแก้ไขรายการพื้นที่ตรวจของโรงงานนี้</p></div><button type="button" class="button primary" data-admin-action="add-zone">+ เพิ่ม Zone</button></div><div class="admin-master-grid">${Object.entries(zones).map(([zone, locations]) => `<section data-zone-key="${escapeHtml(zone)}"><header><h4>${escapeHtml(zone)}</h4><div class="admin-zone-actions"><button type="button" data-admin-action="add-zone-location">+ เพิ่มพื้นที่</button><button type="button" class="zone-delete-button" data-admin-action="delete-zone">ลบ Zone</button></div></header><label class="zone-checklist-field"><span>ชุดคำถามสำหรับ Zone นี้</span><select data-zone-checklist-type aria-label="ชุดคำถาม ${escapeHtml(site)} ${escapeHtml(zone)}">${Object.entries(checklistSets).map(([type, checklist]) => `<option value="${escapeHtml(type)}" ${siteZoneChecklistTypes[site]?.[zone] === type ? "selected" : ""}>${escapeHtml(checklist.label)}</option>`).join("")}</select></label><div>${locations.map((value, index) => `<label data-zone-index="${index}"><input data-zone-location-value value="${escapeHtml(value)}" aria-label="${escapeHtml(site)} ${escapeHtml(zone)} พื้นที่ ${index + 1}" /><button type="button" class="admin-delete-button" data-admin-action="delete-zone-location">ลบ</button></label>`).join("")}</div></section>`).join("") || `<div class="dashboard-empty compact admin-zone-empty">ยังไม่มี Zone ใน Site นี้</div>`}</div></section>`; }).join("")}
       <div class="admin-section-list">${adminSections.map((section, sectionIndex) => `<section class="admin-section" data-admin-section="${sectionIndex}"><header><label class="field"><span>ชื่อหมวด ${section.id}</span><input data-section-title value="${escapeHtml(section.title)}" /></label><div><b>${section.items.length} คำถาม</b><button type="button" class="admin-delete-button" data-admin-action="delete-section">ลบหมวด</button></div></header><div class="admin-question-list">${section.items.map((item, itemIndex) => `<article class="admin-question" data-admin-item="${itemIndex}"><span class="item-code">${escapeHtml(item.id)}</span><textarea data-question-text aria-label="คำถาม ${escapeHtml(item.id)}">${escapeHtml(item.text)}</textarea><button type="button" class="admin-delete-button" data-admin-action="delete-question">ลบ</button></article>`).join("")}</div><button type="button" class="admin-add-question" data-admin-action="add-question">+ เพิ่มคำถามในหมวดนี้</button></section>`).join("")}</div>
       <section class="admin-data-card"><div class="card-heading"><div><span class="eyebrow">Audit data</span><h3>ข้อมูลแบบตรวจบนอุปกรณ์</h3></div></div><div class="admin-audit-list">${audits.length ? audits.map((entry) => { const stats = entryStats(entry); return `<article data-admin-audit="${escapeHtml(entry.id)}"><div><b>${escapeHtml(entry.meta?.area || "ยังไม่ระบุพื้นที่")}</b><span>${escapeHtml(auditTypeLabel(entry.meta?.auditType))} · ${escapeHtml(entry.meta?.site || "ยังไม่ระบุ Site")} · ${escapeHtml(entry.meta?.department || "—")} · ${escapeHtml(formatDate(entry.meta?.auditDate))}</span></div><div><strong>${stats.answered}/${stats.total}</strong><span>${entry.status === "complete" ? "เสร็จสิ้น" : "ฉบับร่าง"}</span></div><button type="button" class="admin-delete-button" data-admin-action="delete-audit">ลบข้อมูล</button></article>`; }).join("") : `<div class="dashboard-empty compact">ยังไม่มีข้อมูลแบบตรวจ</div>`}</div></section>`;
   }
@@ -1117,12 +1159,38 @@
       if (action === "history") showHistory();
       if (action === "print-blank") { prepareBlankPrint(); window.print(); }
       const recent = event.target.closest("[data-audit-id]");
-      if (recent && recent.dataset.auditId !== audit.id) {
+      const recentAction = event.target.closest("[data-recent-action]")?.dataset.recentAction;
+      if (recent && recentAction === "delete") {
+        const areaName = recent.querySelector(".recent-audit-open b")?.textContent || "แบบตรวจนี้";
+        if (!confirm(`ลบ “${areaName}” ออกจากอุปกรณ์นี้หรือไม่? ข้อมูลและรูปแนบในแบบตรวจนี้จะถูกลบทั้งหมด`)) return;
+        await dbRequest("readwrite", (store) => store.delete(recent.dataset.auditId));
+        if (recent.dataset.auditId === audit.id) {
+          const remaining = await listAudits();
+          audit = remaining[0] || createAudit();
+          activateAuditChecklist();
+        }
+        navigate("dashboard");
+        showToast("ลบแบบตรวจแล้ว");
+        return;
+      }
+      if (recent && recentAction === "edit") {
+        audit = normalizeAudit(await dbRequest("readonly", (store) => store.get(recent.dataset.auditId)));
+        activateAuditChecklist();
+        navigate("meta");
+        showToast("เปิดแบบตรวจสำหรับแก้ไขแล้ว");
+        return;
+      }
+      if (recent && recentAction === "open" && recent.dataset.auditId !== audit.id) {
         audit = normalizeAudit(await dbRequest("readonly", (store) => store.get(recent.dataset.auditId)));
         activateAuditChecklist();
         navigate("dashboard");
         showToast("เปิดแบบตรวจแล้ว");
       }
+    });
+    els.dashboardView.addEventListener("change", (event) => {
+      if (event.target.id !== "dashboardMonthFilter") return;
+      dashboardMonthFilter = event.target.value;
+      renderDashboard();
     });
     els.itemSearch.addEventListener("input", () => { searchTerm = els.itemSearch.value; renderChecklist(); });
     els.findingFilter.addEventListener("change", () => { findingsOnly = els.findingFilter.checked; renderChecklist(); });
@@ -1357,10 +1425,22 @@
       showToast("เข้าสู่ระบบ Admin แล้ว");
     });
     els.adminView.addEventListener("change", (event) => {
-      if (!isAdmin || !event.target.matches("[data-admin-checklist-type]")) return;
-      if (!checklistSets[event.target.value]) return;
-      adminChecklistType = event.target.value;
-      renderAdmin();
+      if (!isAdmin) return;
+      if (event.target.matches("[data-admin-checklist-type]")) {
+        if (!checklistSets[event.target.value]) return;
+        adminChecklistType = event.target.value;
+        renderAdmin();
+        return;
+      }
+      if (event.target.matches("[data-zone-checklist-type]")) {
+        const site = event.target.closest("[data-zone-site]")?.dataset.zoneSite;
+        const zone = event.target.closest("[data-zone-key]")?.dataset.zoneKey;
+        if (!site || !zone || !checklistSets[event.target.value]) return;
+        if (!siteZoneChecklistTypes[site]) siteZoneChecklistTypes[site] = {};
+        siteZoneChecklistTypes[site][zone] = event.target.value;
+        scheduleChecklistSave();
+        showToast(`กำหนด ${zone} ให้ใช้แบบตรวจ ${auditTypeLabel(event.target.value)} แล้ว`);
+      }
     });
     els.adminView.addEventListener("input", (event) => {
       if (!isAdmin) return;
@@ -1408,7 +1488,7 @@
       }
       if (action === "export") {
         const audits = await listAudits();
-        const payload = { schemaVersion: 5, exportedAt: new Date().toISOString(), checklists: checklistSets, masterData, siteZoneLocations, audits };
+        const payload = { schemaVersion: 6, exportedAt: new Date().toISOString(), checklists: checklistSets, masterData, siteZoneLocations, siteZoneChecklistTypes, audits };
         downloadBlob(JSON.stringify(payload, null, 2), `KCG-GHP-System-Backup-${today()}.json`, "application/json;charset=utf-8");
         showToast("ดาวน์โหลดข้อมูลระบบแล้ว");
         return;
@@ -1418,6 +1498,7 @@
         checklistSets = JSON.parse(JSON.stringify(DEFAULT_CHECKLISTS));
         masterData = JSON.parse(JSON.stringify(DEFAULT_MASTER_DATA));
         siteZoneLocations = JSON.parse(JSON.stringify(DEFAULT_SITE_ZONE_LOCATIONS));
+        siteZoneChecklistTypes = JSON.parse(JSON.stringify(DEFAULT_SITE_ZONE_CHECKLIST_TYPES));
         activateAuditChecklist();
         await saveChecklistSettings();
         updateAll({ checklist: false });
@@ -1457,6 +1538,26 @@
       const zoneSite = button.closest("[data-zone-site]")?.dataset.zoneSite;
       const zoneKey = zoneElement?.dataset.zoneKey;
       const editableZoneLocations = siteZoneLocations[zoneSite]?.[zoneKey];
+      if (action === "add-zone" && zoneSite) {
+        if (!siteZoneLocations[zoneSite]) siteZoneLocations[zoneSite] = {};
+        if (!siteZoneChecklistTypes[zoneSite]) siteZoneChecklistTypes[zoneSite] = {};
+        const zone = nextZoneName(zoneSite);
+        siteZoneLocations[zoneSite][zone] = ["พื้นที่ใหม่"];
+        siteZoneChecklistTypes[zoneSite][zone] = "production";
+        await saveChecklistSettings();
+        updateAll({ checklist: false });
+        showToast(`เพิ่ม ${zone} ใน ${zoneSite} แล้ว`);
+        return;
+      }
+      if (action === "delete-zone" && editableZoneLocations) {
+        if (!confirm(`ลบ ${zoneKey} และรายการพื้นที่ทั้งหมดออกจาก ${zoneSite} หรือไม่?`)) return;
+        delete siteZoneLocations[zoneSite][zoneKey];
+        if (siteZoneChecklistTypes[zoneSite]) delete siteZoneChecklistTypes[zoneSite][zoneKey];
+        await saveChecklistSettings();
+        updateAll({ checklist: false });
+        showToast(`ลบ ${zoneKey} ออกจาก ${zoneSite} แล้ว`);
+        return;
+      }
       if (action === "add-zone-location" && editableZoneLocations) {
         editableZoneLocations.push("พื้นที่ใหม่");
         await saveChecklistSettings();

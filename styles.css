@@ -284,16 +284,34 @@ button { color: inherit; }
 .severity-item small { color: var(--muted); font-size: 8px; }
 .closure-progress { margin-top: 18px; padding-top: 15px; border-top: 1px solid var(--line); }
 .closure-progress > div:first-child { display: flex; justify-content: space-between; font-size: 10px; }
-.dashboard-recent { display: grid; gap: 7px; }
-.recent-audit { width: 100%; display: grid; grid-template-columns: 82px 1fr auto; align-items: center; gap: 11px; border: 1px solid var(--line); background: #fafaf8; border-radius: 14px; padding: 10px 12px; cursor: pointer; text-align: left; }
+.dashboard-recent { display: grid; gap: 13px; }
+.recent-card-controls { display: flex; align-items: center; justify-content: flex-end; gap: 9px; }
+.recent-card-controls label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 8px; font-weight: 700; white-space: nowrap; }
+.recent-card-controls select { max-width: 170px; border: 1px solid var(--line); border-radius: 8px; background: white; padding: 6px 24px 6px 8px; color: var(--ink); font-size: 9px; outline: none; }
+.recent-card-controls select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(11,107,95,.08); }
+.recent-month-group { display: grid; gap: 7px; }
+.recent-month-group > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 2px; }
+.recent-month-group > header h4 { margin: 0; color: #a72720; font-size: 10px; }
+.recent-month-group > header span { color: var(--muted); font-size: 8px; }
+.recent-month-group > div { display: grid; gap: 7px; }
+.recent-audit { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; border: 1px solid var(--line); background: #fafaf8; border-radius: 14px; overflow: hidden; }
 .recent-audit:hover, .recent-audit.active { border-color: #edaaa6; background: #fff7f6; }
-.recent-audit span { min-width: 0; }
-.recent-audit b, .recent-audit small { display: block; }
-.recent-audit b { font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.recent-audit small { color: var(--muted); font-size: 8px; margin-top: 2px; }
+.recent-audit-open { min-width: 0; display: grid; grid-template-columns: 82px minmax(0, 1fr) auto; align-items: center; gap: 11px; border: 0; background: transparent; padding: 10px 12px; cursor: pointer; text-align: left; }
+.recent-audit-open:hover { background: rgba(219,36,28,.035); }
+.recent-audit-open span { min-width: 0; }
+.recent-audit-open b, .recent-audit-open small { display: block; }
+.recent-audit-open b { font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-audit-open small { color: var(--muted); font-size: 8px; margin-top: 2px; }
 .recent-date { color: var(--muted); font-size: 8px; }
 .recent-result { text-align: right; }
 .recent-result b { color: var(--primary); font-size: 12px; }
+.recent-audit-actions { display: grid; grid-template-rows: 1fr 1fr; border-left: 1px solid var(--line); }
+.recent-audit-actions button { min-width: 56px; border: 0; background: white; padding: 6px 10px; font-size: 8px; font-weight: 800; cursor: pointer; }
+.recent-audit-actions button + button { border-top: 1px solid var(--line); }
+.recent-edit-button { color: var(--primary); }
+.recent-edit-button:hover { background: #eaf7f4; }
+.recent-delete-button { color: #b42318; }
+.recent-delete-button:hover { background: #fff0ee; }
 .dashboard-empty { border: 1px dashed #d8d6d1; border-radius: 18px; padding: 36px 22px; background: #fafaf8; text-align: center; color: var(--muted); }
 .dashboard-empty.compact { padding: 22px 14px; font-size: 10px; }
 
@@ -373,11 +391,19 @@ button { color: inherit; }
 .admin-toolbar .button.secondary { color: white; background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.25); }
 .admin-master-card { margin-bottom: 14px; padding: 22px; border-radius: 22px; background: white; box-shadow: 0 10px 28px rgba(42,43,46,.06); }
 .admin-master-card .card-heading p { margin: 3px 0 0; color: var(--muted); font-size: 9px; }
+.admin-zone-card > .card-heading { align-items: center; }
 .admin-master-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 11px; }
 .admin-master-grid > section { min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 16px; background: #fafaf8; }
 .admin-master-grid header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
 .admin-master-grid h4 { margin: 0; font-size: 11px; }
 .admin-master-grid header button { border: 0; background: none; color: var(--primary); font-size: 9px; font-weight: 700; cursor: pointer; }
+.admin-zone-actions { display: flex; align-items: center; gap: 7px; }
+.admin-master-grid header .zone-delete-button { color: #b42318; }
+.zone-checklist-field { display: grid !important; grid-template-columns: 1fr !important; gap: 5px !important; margin-bottom: 9px; }
+.zone-checklist-field span { color: var(--muted); font-size: 8px; font-weight: 700; }
+.zone-checklist-field select { width: 100%; border: 1px solid #d9d8d4; border-radius: 10px; padding: 8px 9px; background: white; color: var(--ink); font-size: 9px; outline: 0; }
+.zone-checklist-field select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(219,36,28,.08); }
+.admin-zone-empty { grid-column: 1 / -1; }
 .admin-master-grid section > div { display: grid; gap: 7px; }
 .admin-master-grid label { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
 .admin-master-grid input { min-width: 0; width: 100%; border: 1px solid #d9d8d4; border-radius: 10px; padding: 8px 9px; background: white; color: var(--ink); font-size: 9px; outline: 0; }
@@ -457,6 +483,8 @@ button { color: inherit; }
   .admin-heading { align-items: flex-start; flex-direction: column; }
   .admin-metrics { grid-template-columns: 1fr 1fr; }
   .admin-master-grid { grid-template-columns: 1fr; }
+  .admin-zone-card > .card-heading { align-items: stretch; flex-direction: column; }
+  .admin-zone-card > .card-heading > .button { width: 100%; }
   .admin-toolbar { align-items: stretch; flex-direction: column; }
   .admin-toolbar > div:last-child { justify-content: flex-start; }
   .admin-section > header { grid-template-columns: 1fr; }
@@ -477,9 +505,14 @@ button { color: inherit; }
   .metric-card > strong { font-size: 27px; }
   .dashboard-row { grid-template-columns: 1fr; }
   .dashboard-card { padding: 18px; }
+  .recent-card .card-heading { align-items: stretch; flex-direction: column; }
+  .recent-card-controls { justify-content: space-between; }
+  .recent-card-controls label { min-width: 0; }
+  .recent-card-controls select { max-width: 190px; min-width: 0; }
   .severity-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .severity-item { padding: 11px 8px; }
-  .recent-audit { grid-template-columns: 66px 1fr auto; }
+  .recent-audit-open { grid-template-columns: 66px minmax(0, 1fr) auto; padding: 9px 10px; }
+  .recent-audit-actions button { min-width: 50px; padding-inline: 7px; }
   .defects-heading { align-items: flex-start; }
   .defects-heading h2 { font-size: 23px; }
   .defect-summary { padding: 10px 12px; }
