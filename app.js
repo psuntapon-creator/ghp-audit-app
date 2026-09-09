@@ -91,6 +91,7 @@
   let currentStep = "dashboard";
   let searchTerm = "";
   let findingsOnly = false;
+  let defectEntryMode = false;
   let saveTimer;
   let checklistSaveTimer;
   let toastTimer;
@@ -418,12 +419,14 @@
 
   function renderNav() {
     const metaActive = currentStep === "meta";
+    const checklistActive = sections.some((section) => section.id === currentStep);
     const metaComplete = ["site", "department", "area", "auditDate", "auditor"].every((key) => audit.meta[key]);
     const findings = getFindings();
     const openFindings = findings.filter(({ response }) => response.actionStatus !== "closed").length;
     const items = [
       `<button class="nav-item nav-main ${currentStep === "dashboard" ? "active" : ""}" data-step="dashboard" data-short="ภาพรวม"><span class="nav-number">⌂</span><span class="nav-label">Dashboard ภาพรวม</span><span class="nav-progress">ดูผล</span></button>`,
       `<button class="nav-item nav-main ${metaActive ? "active" : ""} ${metaComplete ? "complete" : ""}" data-step="meta" data-short="กรอกแบบตรวจ"><span class="nav-number">✎</span><span class="nav-label">กรอกแบบตรวจ</span><span class="nav-progress">${metaComplete ? "พร้อม" : "เริ่มกรอก"}</span></button>`,
+      `<button class="nav-item nav-main defect-entry-nav ${defectEntryMode && checklistActive ? "active" : ""}" data-nav-action="enter-defect" data-short="กรอกข้อบกพร่อง"><span class="nav-number">＋</span><span class="nav-label">กรอกข้อบกพร่อง</span><span class="nav-progress">บันทึกสิ่งที่พบ</span></button>`,
       `<button class="nav-item nav-main ${currentStep === "defects" ? "active" : ""} ${findings.length && !openFindings ? "complete" : ""}" data-step="defects" data-short="ตอบข้อบกพร่อง"><span class="nav-number">!</span><span class="nav-label">ตอบกลับข้อบกพร่อง</span><span class="nav-progress">${openFindings ? `${openFindings} เปิด` : findings.length ? "ปิดครบ" : "ยังไม่มี"}</span></button>`,
       `<button class="nav-item nav-main print-nav" data-nav-action="print-blank" data-short="พิมพ์ฟอร์ม"><span class="nav-number">▤</span><span class="nav-label">พิมพ์ฟอร์มเปล่า</span><span class="nav-progress">พร้อมพิมพ์</span></button>`,
       `<button class="nav-item nav-main admin-nav ${currentStep === "admin" ? "active" : ""}" data-step="admin" data-short="Admin"><span class="nav-number">${isAdmin ? "⚙" : "▣"}</span><span class="nav-label">ผู้ดูแลระบบ</span><span class="nav-progress">${isAdmin ? "เข้าใช้งาน" : "ล็อก"}</span></button>`,
@@ -469,6 +472,11 @@
           <button type="button" class="dashboard-action audit-action" data-dashboard-action="audit">
             <span class="dashboard-action-icon" aria-hidden="true">✎</span>
             <span class="dashboard-action-copy"><strong>กรอกแบบตรวจ</strong><small>${auditTypeLabel(audit.meta.auditType)} · ${stats.answered ? `ทำต่อจาก ${stats.answered}/${stats.total} ข้อ` : "เริ่มการตรวจประเมิน"}</small></span>
+            <span class="dashboard-action-arrow" aria-hidden="true">→</span>
+          </button>
+          <button type="button" class="dashboard-action finding-entry-action" data-dashboard-action="enter-defect">
+            <span class="dashboard-action-icon" aria-hidden="true">＋</span>
+            <span class="dashboard-action-copy"><strong>กรอกข้อบกพร่อง</strong><small>บันทึกรายละเอียดและรูปที่ตรวจพบ</small></span>
             <span class="dashboard-action-arrow" aria-hidden="true">→</span>
           </button>
           <button type="button" class="dashboard-action defect-action ${openFindings.length ? "has-findings" : ""}" data-dashboard-action="defects">
@@ -731,14 +739,14 @@
       return matchesSearch && matchesFinding;
     });
 
-    els.checklist.innerHTML = `<section class="quick-audit-bar">
-      <div><strong>กรอกเฉพาะข้อที่พบ</strong><span>พิมพ์รายละเอียดข้อบกพร่องได้ทันที ระบบจะบันทึกเป็น Observe อัตโนมัติ แล้วสามารถเปลี่ยนเป็น Minor หรือ Major ได้</span></div>
+    els.checklist.innerHTML = `<section class="quick-audit-bar ${defectEntryMode ? "defect-entry-mode" : ""}">
+      <div><strong>${defectEntryMode ? "โหมดกรอกข้อบกพร่อง" : "กรอกเฉพาะข้อที่พบ"}</strong><span>พิมพ์รายละเอียดข้อบกพร่องได้ทันที ระบบจะบันทึกเป็น Observe อัตโนมัติ แล้วสามารถเปลี่ยนเป็น Minor หรือ Major ได้</span></div>
       <button type="button" class="button secondary" data-mark-remaining-comply ${unansweredWithoutFinding ? "" : "disabled"}>✓ ไม่พบข้อบกพร่องในรายการที่เหลือ</button>
     </section>` + visible.map((item) => {
       const response = responseFor(item.id);
       const isFinding = response.rating && response.rating !== "comply";
       const hasFindingDetail = Boolean(response.note.trim() || response.photos.length);
-      const showFindingPanel = !response.rating || isFinding || hasFindingDetail;
+      const showFindingPanel = defectEntryMode || !response.rating || isFinding || hasFindingDetail;
       const scoreProfile = profile();
       return `<article class="check-item" data-item-id="${item.id}">
         <div class="check-main">
@@ -832,6 +840,7 @@
     updateSummary();
   }
   function navigate(step) {
+    if (!sections.some((section) => section.id === step)) defectEntryMode = false;
     currentStep = step;
     searchTerm = "";
     findingsOnly = false;
@@ -844,6 +853,19 @@
     els.checklistView.hidden = ["dashboard", "meta", "defects", "admin"].includes(step);
     updateAll();
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function enterDefectEntry() {
+    const metaComplete = ["site", "department", "area", "auditDate", "auditor"].every((key) => audit.meta[key]);
+    if (!metaComplete) {
+      navigate("meta");
+      showToast("กรุณากรอกข้อมูลการตรวจให้ครบก่อนกรอกข้อบกพร่อง");
+      return;
+    }
+    const targetSection = sections.find((section) => section.items.some((item) => !responseFor(item.id).rating)) || sections[0];
+    defectEntryMode = true;
+    navigate(targetSection.id);
+    showToast("เลือกข้อที่พบ แล้วกรอกรายละเอียดข้อบกพร่องได้ทันที");
   }
 
   async function compressImage(file) {
@@ -1028,6 +1050,10 @@
         window.print();
         return;
       }
+      if (navAction === "enter-defect") {
+        enterDefectEntry();
+        return;
+      }
       const button = event.target.closest("[data-step]");
       if (button) navigate(button.dataset.step);
     });
@@ -1035,6 +1061,7 @@
     els.dashboardView.addEventListener("click", async (event) => {
       const action = event.target.closest("[data-dashboard-action]")?.dataset.dashboardAction;
       if (action === "audit") navigate("meta");
+      if (action === "enter-defect") enterDefectEntry();
       if (action === "defects") navigate("defects");
       if (action === "history") showHistory();
       if (action === "print-blank") { prepareBlankPrint(); window.print(); }
