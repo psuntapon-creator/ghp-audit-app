@@ -13,22 +13,22 @@
   const THEPHARAK_SITE = "โรงงานเทพารักษ์";
   const DEFAULT_SITE_ZONE_LOCATIONS = {
     [BANGPHLI_SITE]: {
-      "Zone 1": ["Zone 1-PD1_Cracker A,B"],
-      "Zone 2": ["Zone 2-PD2_Cookie"],
-      "Zone 3": ["Zone 3-PD2_Jelly powder"],
-      "Zone 4": ["Zone 4-PD2_Repack"],
-      "Zone 5": ["Zone 5-PD2_Mixed flour"],
-      "Zone 6": ["Zone 6-PD3_Sunquick"],
-      "Zone 7": ["Zone 7-PD3_Syrup"],
-      "Zone 8": ["Zone 8-PD3_Wafer"],
-      "Zone 9": ["Zone 9-PD4_Jelly cup"],
-      "Zone 10": ["Zone 10-PD4_Cherry"],
-      "Zone 11": ["Zone 11-PD4_Jam/Non Dairy filling"],
-      "Zone 12": ["Zone 12-PD4_Dairy filling"],
-      "Zone 13": ["Zone 13-GN_รอบนอก"],
-      "Zone 14": ["Zone 14_WH RM/PM"],
-      "Zone 15": ["Zone 15_Logistic Park"],
-      "Zone 16": ["Zone 16_Engineer"],
+      "Zone 1": ["PD1_Cracker A,B"],
+      "Zone 2": ["PD2_Cookie"],
+      "Zone 3": ["PD2_Jelly powder"],
+      "Zone 4": ["PD2_Repack"],
+      "Zone 5": ["PD2_Mixed flour"],
+      "Zone 6": ["PD3_Sunquick"],
+      "Zone 7": ["PD3_Syrup"],
+      "Zone 8": ["PD3_Wafer"],
+      "Zone 9": ["PD4_Jelly cup"],
+      "Zone 10": ["PD4_Cherry"],
+      "Zone 11": ["PD4_Jam/Non Dairy filling"],
+      "Zone 12": ["PD4_Dairy filling"],
+      "Zone 13": ["GN_รอบนอก"],
+      "Zone 14": ["WH RM/PM"],
+      "Zone 15": ["Logistic Park"],
+      "Zone 16": ["Engineer"],
     },
     [THEPHARAK_SITE]: {
       "Zone 1": ["คลังอาคาร 1 : คลัง Chill", "คลังอาคาร 1 : คลัง Air"],
@@ -129,6 +129,9 @@
   }
   function allZoneLocations() {
     return Object.values(siteZoneLocations).flatMap((zones) => Object.values(zones).flat());
+  }
+  function normalizeBangphliAreaLabel(value) {
+    return String(value || "").replace(/^Zone\s+\d+\s*[-_]\s*/i, "");
   }
   function departmentOptionsFor(entry = audit) {
     return isZoneSite(entry?.meta?.site) ? Object.keys(zoneLocationsForSite(entry.meta.site)) : masterData.departments;
@@ -248,7 +251,8 @@
         if (!saved.siteZoneLocations[site] || typeof saved.siteZoneLocations[site] !== "object") return;
         Object.keys(DEFAULT_SITE_ZONE_LOCATIONS[site]).forEach((zone) => {
           if (Array.isArray(saved.siteZoneLocations[site][zone])) {
-            siteZoneLocations[site][zone] = saved.siteZoneLocations[site][zone];
+            const locations = saved.siteZoneLocations[site][zone];
+            siteZoneLocations[site][zone] = site === BANGPHLI_SITE ? locations.map(normalizeBangphliAreaLabel) : locations;
           }
         });
       });
@@ -309,6 +313,7 @@
     if (!entry.meta) entry.meta = {};
     if (!entry.meta.title || LEGACY_AUDIT_TITLES.has(entry.meta.title)) entry.meta.title = DEFAULT_AUDIT_TITLE;
     if (!checklistSets[entry.meta.auditType]) entry.meta.auditType = "production";
+    if (entry.meta.site === BANGPHLI_SITE) entry.meta.area = normalizeBangphliAreaLabel(entry.meta.area);
     return entry;
   }
 
