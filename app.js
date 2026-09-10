@@ -83,6 +83,7 @@
   const DB_NAME = "ghp-audit-monitoring";
   const STORE_NAME = "audits";
   const SETTINGS_KEY = "ghp-checklist-settings-v1";
+  const THEME_KEY = "ghp-color-theme";
   const ADMIN_SALT = "ghp-admin-v1:";
   const ADMIN_HASH = "632310defa63789305fed1b53d19186894a126dee092d4070e8d238b4023d728";
 
@@ -92,7 +93,7 @@
   let currentStep = "dashboard";
   let searchTerm = "";
   let findingsOnly = false;
-  let dashboardMonthFilter = "all";
+  let dashboardFilters = { month: "all", site: "all", zone: "all", area: "all", type: "all" };
   let defectEntryMode = false;
   let saveTimer;
   let checklistSaveTimer;
@@ -181,6 +182,26 @@
     if (value === "unspecified") return "ไม่ระบุเดือนตรวจ";
     return new Intl.DateTimeFormat("th-TH", { month: "long", year: "numeric" }).format(new Date(`${value}-01T00:00:00`));
   }
+  function formatAuditMonthShort(value) {
+    if (value === "unspecified") return "ไม่ระบุ";
+    return new Intl.DateTimeFormat("th-TH", { month: "short", year: "2-digit" }).format(new Date(`${value}-01T00:00:00`));
+  }
+  function dashboardFilterOptions(values, selected, allLabel) {
+    return `<option value="all">${escapeHtml(allLabel)}</option>${values.map((value) => `<option value="${escapeHtml(value)}" ${selected === value ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}`;
+  }
+  function applyTheme(theme) {
+    const nextTheme = theme === "dark" ? "dark" : "light";
+    document.documentElement.dataset.theme = nextTheme;
+    localStorage.setItem(THEME_KEY, nextTheme);
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", nextTheme === "dark" ? "#17181b" : "#db241c");
+    if (els.themeToggle) {
+      const isDark = nextTheme === "dark";
+      els.themeToggle.textContent = isDark ? "☀" : "☾";
+      els.themeToggle.title = isDark ? "เปลี่ยนเป็นโหมดสว่าง" : "เปลี่ยนเป็นโหมดมืด";
+      els.themeToggle.setAttribute("aria-label", els.themeToggle.title);
+      els.themeToggle.setAttribute("aria-pressed", String(isDark));
+    }
+  }
   function sectionShortTitle(section) {
     const clean = section.title.replace(/^\d+\.\s*/, "").trim();
     if (section.id === "1") return "สถานที่";
@@ -219,8 +240,8 @@
         title: DEFAULT_AUDIT_TITLE,
         auditType,
         site: "",
-        department: "PD4",
-        area: "Dairy filling",
+        department: "",
+        area: "",
         auditDate: today(),
         auditMonth: today().slice(0, 7),
         auditor: "",
@@ -505,85 +526,138 @@
   }
 
   async function renderDashboard() {
-    const stats = getStats();
-    const findings = getFindings();
-    const openFindings = findings.filter(({ response }) => response.actionStatus !== "closed");
-    const closedFindings = findings.length - openFindings.length;
-    const completion = Math.round((stats.answered / stats.total) * 100);
-    els.dashboardView.innerHTML = `
-      <section class="dashboard-hero">
-        <div>
-          <span class="eyebrow">KCG Corporation · Quality System</span>
-          <h2>Dashboard ภาพรวมการตรวจ GHP</h2>
-        </div>
-        <div class="dashboard-hero-actions">
-          <button type="button" class="dashboard-action audit-action" data-dashboard-action="audit">
-            <span class="dashboard-action-icon" aria-hidden="true">✎</span>
-            <span class="dashboard-action-copy"><strong>กรอกแบบตรวจ</strong><small>${auditTypeLabel(audit.meta.auditType)} · ${stats.answered ? `ทำต่อจาก ${stats.answered}/${stats.total} ข้อ` : "เริ่มการตรวจประเมิน"}</small></span>
-            <span class="dashboard-action-arrow" aria-hidden="true">→</span>
-          </button>
-          <button type="button" class="dashboard-action finding-entry-action" data-dashboard-action="enter-defect">
-            <span class="dashboard-action-icon" aria-hidden="true">＋</span>
-            <span class="dashboard-action-copy"><strong>กรอกข้อบกพร่อง</strong><small>เริ่มบันทึกได้ทันที แม้ยังไม่ได้กรอกข้อมูลการตรวจ</small></span>
-            <span class="dashboard-action-arrow" aria-hidden="true">→</span>
-          </button>
-          <button type="button" class="dashboard-action defect-action ${openFindings.length ? "has-findings" : ""}" data-dashboard-action="defects">
-            <span class="dashboard-action-icon" aria-hidden="true">!</span>
-            <span class="dashboard-action-copy"><strong>ตอบกลับข้อบกพร่อง</strong><small>${openFindings.length ? `${openFindings.length} รายการรอดำเนินการ` : "ยังไม่มีรายการเปิด"}</small></span>
-            ${openFindings.length ? `<span class="dashboard-action-count" aria-label="${openFindings.length} รายการ">${openFindings.length}</span>` : `<span class="dashboard-action-arrow" aria-hidden="true">→</span>`}
-          </button>
-          <button type="button" class="dashboard-action print-action" data-dashboard-action="print-blank">
-            <span class="dashboard-action-icon" aria-hidden="true">▤</span>
-            <span class="dashboard-action-copy"><strong>พิมพ์ฟอร์มเปล่า</strong><small>สำหรับกรอกผลการตรวจบนกระดาษ</small></span>
-            <span class="dashboard-action-arrow" aria-hidden="true">→</span>
-          </button>
-        </div>
-      </section>
-      <section class="metric-grid" aria-label="สรุปผลการตรวจ">
-        <article class="metric-card score"><span>คะแนนปัจจุบัน</span><strong>${displayPercent(stats.percent)}<small>${stats.percent === null ? "" : "%"}</small></strong><p>${stats.answered === stats.total ? (stats.percent >= PASS_THRESHOLD ? "ผ่านเกณฑ์" : "ไม่ผ่านเกณฑ์") : "อยู่ระหว่างการตรวจ"}</p></article>
-        <article class="metric-card progress"><span>ความคืบหน้า</span><strong>${stats.answered}<small> / ${stats.total}</small></strong><p>กรอกแล้ว ${completion}%</p><div class="metric-progress"><i style="width:${completion}%"></i></div></article>
-        <article class="metric-card findings"><span>ข้อบกพร่องทั้งหมด</span><strong>${findings.length}<small> ข้อ</small></strong><p>รอดำเนินการ ${openFindings.length} · ปิดแล้ว ${closedFindings}</p></article>
-        <article class="metric-card status"><span>สถานะแบบตรวจ</span><strong class="metric-status">${audit.status === "complete" ? "เสร็จสิ้น" : "ฉบับร่าง"}</strong><p>อัปเดตล่าสุด ${new Intl.DateTimeFormat("th-TH", { dateStyle: "short", timeStyle: "short" }).format(new Date(audit.updatedAt))}</p></article>
-      </section>
-      <section class="dashboard-row">
-        <article class="dashboard-card severity-card">
-          <div class="card-heading"><div><span class="eyebrow">Finding summary</span><h3>สรุประดับข้อบกพร่อง</h3></div><button type="button" class="text-button" data-dashboard-action="defects">ดูและตอบกลับ</button></div>
-          <div class="severity-list">
-            ${["major", "minor", "observe"].map((rating) => `<button type="button" data-dashboard-action="defects" class="severity-item ${rating}"><span><i class="dot ${rating}"></i>${FINDING_RULES[rating].label}</span><strong>${stats.counts[rating]}</strong><small>${FINDING_RULES[rating].deadline}</small></button>`).join("")}
-          </div>
-          ${findings.length ? `<div class="closure-progress"><div><span>การปิดข้อบกพร่อง</span><b>${closedFindings}/${findings.length}</b></div><div class="metric-progress"><i style="width:${Math.round((closedFindings / findings.length) * 100)}%"></i></div></div>` : `<div class="dashboard-empty compact">ยังไม่พบ Major, Minor หรือ Observe</div>`}
-        </article>
-        <article class="dashboard-card recent-card">
-          <div class="card-heading"><div><span class="eyebrow">On this device</span><h3>แบบตรวจล่าสุด</h3></div><div class="recent-card-controls"><label>เดือนตรวจ<select id="dashboardMonthFilter" aria-label="กรองตามเดือนตรวจ"><option value="all">ทุกเดือน</option></select></label><button type="button" class="text-button" data-dashboard-action="history">ดูทั้งหมด</button></div></div>
-          <div id="dashboardRecent" class="dashboard-recent"><div class="dashboard-empty compact">กำลังโหลด...</div></div>
-        </article>
-      </section>`;
+    const currentStats = getStats();
+    const currentFindings = getFindings();
+    const currentOpenFindings = currentFindings.filter(({ response }) => response.actionStatus !== "closed");
+    let audits = [];
     try {
-      const audits = await listAudits();
-      if (currentStep !== "dashboard") return;
-      const monthValues = [...new Set(audits.map(auditMonthFor))].sort((a, b) => b.localeCompare(a));
-      if (dashboardMonthFilter !== "all" && !monthValues.includes(dashboardMonthFilter)) dashboardMonthFilter = "all";
-      const monthFilter = $("dashboardMonthFilter");
-      monthFilter.innerHTML = `<option value="all">ทุกเดือน (${audits.length})</option>${monthValues.map((month) => `<option value="${escapeHtml(month)}" ${dashboardMonthFilter === month ? "selected" : ""}>${escapeHtml(formatAuditMonth(month))} (${audits.filter((entry) => auditMonthFor(entry) === month).length})</option>`).join("")}`;
-      monthFilter.disabled = !audits.length;
-      const filteredAudits = dashboardMonthFilter === "all" ? audits : audits.filter((entry) => auditMonthFor(entry) === dashboardMonthFilter);
-      const recent = dashboardMonthFilter === "all" ? filteredAudits.slice(0, 12) : filteredAudits;
-      const recentGroups = recent.reduce((groups, entry) => {
-        const month = auditMonthFor(entry);
-        if (!groups.has(month)) groups.set(month, []);
-        groups.get(month).push(entry);
-        return groups;
-      }, new Map());
-      const recentAuditHtml = (entry) => {
-        const entrySummary = entryStats(entry);
-        const entryFindings = entrySummary.counts.major + entrySummary.counts.minor + entrySummary.counts.observe;
-        return `<article class="recent-audit ${entry.id === audit.id ? "active" : ""}" data-audit-id="${escapeHtml(entry.id)}"><button type="button" class="recent-audit-open" data-recent-action="open" aria-label="เปิดแบบตรวจ ${escapeHtml(entry.meta?.area || "ยังไม่ระบุพื้นที่")}"><span class="recent-date">${escapeHtml(formatDate(entry.meta?.auditDate))}</span><span><b>${escapeHtml(entry.meta?.area || "ยังไม่ระบุพื้นที่")}</b><small>${escapeHtml(auditTypeLabel(entry.meta?.auditType))} · ${escapeHtml(entry.meta?.site || "ยังไม่ระบุ Site")} · ${escapeHtml(entry.meta?.department || "—")} · ${entrySummary.answered}/${entrySummary.total} ข้อ</small></span><span class="recent-result"><b>${displayPercent(entrySummary.percent)}${entrySummary.percent === null ? "" : "%"}</b><small>${entryFindings} ข้อพบ</small></span></button><div class="recent-audit-actions"><button type="button" class="recent-edit-button" data-recent-action="edit">แก้ไข</button><button type="button" class="recent-delete-button" data-recent-action="delete">ลบ</button></div></article>`;
-      };
-      const sortedRecentGroups = [...recentGroups.entries()].sort(([monthA], [monthB]) => monthA === "unspecified" ? 1 : monthB === "unspecified" ? -1 : monthB.localeCompare(monthA));
-      $("dashboardRecent").innerHTML = recent.length ? sortedRecentGroups.map(([month, monthAudits]) => `<section class="recent-month-group"><header><h4>${escapeHtml(formatAuditMonth(month))}</h4><span>${monthAudits.length} แบบตรวจ</span></header><div>${monthAudits.map(recentAuditHtml).join("")}</div></section>`).join("") : `<div class="dashboard-empty compact">${audits.length ? "ไม่พบแบบตรวจในเดือนที่เลือก" : "ยังไม่มีแบบตรวจ"}</div>`;
+      audits = await listAudits();
     } catch (error) {
       console.error(error);
     }
+    if (currentStep !== "dashboard") return;
+
+    const monthValues = [...new Set(audits.map(auditMonthFor))].sort((a, b) => b.localeCompare(a));
+    const siteValues = [...new Set(audits.map((entry) => entry.meta?.site).filter(Boolean))].sort((a, b) => a.localeCompare(b, "th"));
+    if (dashboardFilters.month !== "all" && !monthValues.includes(dashboardFilters.month)) dashboardFilters.month = "all";
+    if (dashboardFilters.site !== "all" && !siteValues.includes(dashboardFilters.site)) dashboardFilters.site = "all";
+    const zoneSource = dashboardFilters.site === "all" ? audits : audits.filter((entry) => entry.meta?.site === dashboardFilters.site);
+    const zoneValues = [...new Set(zoneSource.map((entry) => entry.meta?.department).filter(Boolean))].sort((a, b) => a.localeCompare(b, "th", { numeric: true }));
+    if (dashboardFilters.zone !== "all" && !zoneValues.includes(dashboardFilters.zone)) dashboardFilters.zone = "all";
+    const areaSource = zoneSource.filter((entry) => dashboardFilters.zone === "all" || entry.meta?.department === dashboardFilters.zone);
+    const areaValues = [...new Set(areaSource.map((entry) => entry.meta?.area).filter(Boolean))].sort((a, b) => a.localeCompare(b, "th", { numeric: true }));
+    if (dashboardFilters.area !== "all" && !areaValues.includes(dashboardFilters.area)) dashboardFilters.area = "all";
+    if (dashboardFilters.type !== "all" && !checklistSets[dashboardFilters.type]) dashboardFilters.type = "all";
+
+    const filteredAudits = audits.filter((entry) => (
+      (dashboardFilters.month === "all" || auditMonthFor(entry) === dashboardFilters.month)
+      && (dashboardFilters.site === "all" || entry.meta?.site === dashboardFilters.site)
+      && (dashboardFilters.zone === "all" || entry.meta?.department === dashboardFilters.zone)
+      && (dashboardFilters.area === "all" || entry.meta?.area === dashboardFilters.area)
+      && (dashboardFilters.type === "all" || entry.meta?.auditType === dashboardFilters.type)
+    ));
+    const summaries = filteredAudits.map((entry) => ({ entry, stats: entryStats(entry) }));
+    const scored = summaries.filter(({ stats }) => stats.percent !== null);
+    const averageScore = scored.length ? scored.reduce((sum, { stats }) => sum + stats.percent, 0) / scored.length : null;
+    const ratingCounts = summaries.reduce((counts, { stats }) => {
+      Object.keys(counts).forEach((rating) => { counts[rating] += stats.counts[rating]; });
+      return counts;
+    }, { comply: 0, observe: 0, minor: 0, major: 0 });
+    const totalFindings = ratingCounts.observe + ratingCounts.minor + ratingCounts.major;
+    let closedFindings = 0;
+    summaries.forEach(({ entry }) => {
+      itemsForType(entry.meta?.auditType).forEach((item) => {
+        const response = entry.responses?.[item.id];
+        if (FINDING_RULES[response?.rating] && response.actionStatus === "closed") closedFindings += 1;
+      });
+    });
+    const openFindings = totalFindings - closedFindings;
+    const closureRate = totalFindings ? Math.round((closedFindings / totalFindings) * 100) : null;
+    const completeAudits = filteredAudits.filter((entry) => entry.status === "complete").length;
+    const activeFilterCount = Object.values(dashboardFilters).filter((value) => value !== "all").length;
+
+    const trendGroups = new Map();
+    summaries.forEach(({ entry, stats }) => {
+      const month = auditMonthFor(entry);
+      if (!trendGroups.has(month)) trendGroups.set(month, { scores: [], count: 0 });
+      const group = trendGroups.get(month);
+      group.count += 1;
+      if (stats.percent !== null) group.scores.push(stats.percent);
+    });
+    const trendData = [...trendGroups.entries()]
+      .sort(([monthA], [monthB]) => monthA === "unspecified" ? 1 : monthB === "unspecified" ? -1 : monthA.localeCompare(monthB))
+      .slice(-6)
+      .map(([month, group]) => ({ month, count: group.count, average: group.scores.length ? group.scores.reduce((sum, value) => sum + value, 0) / group.scores.length : null }));
+
+    const siteGroups = new Map();
+    summaries.forEach(({ entry, stats }) => {
+      const site = entry.meta?.site || "ไม่ระบุ Site";
+      if (!siteGroups.has(site)) siteGroups.set(site, { scores: [], count: 0 });
+      const group = siteGroups.get(site);
+      group.count += 1;
+      if (stats.percent !== null) group.scores.push(stats.percent);
+    });
+    const siteData = [...siteGroups.entries()].map(([site, group]) => ({
+      site,
+      count: group.count,
+      average: group.scores.length ? group.scores.reduce((sum, value) => sum + value, 0) / group.scores.length : null,
+    })).sort((a, b) => (b.average ?? -1) - (a.average ?? -1)).slice(0, 6);
+
+    const majorEnd = totalFindings ? (ratingCounts.major / totalFindings) * 360 : 0;
+    const minorEnd = totalFindings ? majorEnd + (ratingCounts.minor / totalFindings) * 360 : 0;
+    const donutStyle = totalFindings
+      ? `background:conic-gradient(var(--major) 0 ${majorEnd}deg,var(--minor) ${majorEnd}deg ${minorEnd}deg,var(--observe) ${minorEnd}deg 360deg)`
+      : "";
+    const chartPercent = (value) => Math.max(0, Math.min(100, Number(value) || 0));
+    const recent = filteredAudits.slice(0, 12);
+    const recentGroups = recent.reduce((groups, entry) => {
+      const month = auditMonthFor(entry);
+      if (!groups.has(month)) groups.set(month, []);
+      groups.get(month).push(entry);
+      return groups;
+    }, new Map());
+    const recentAuditHtml = (entry) => {
+      const entrySummary = entryStats(entry);
+      const entryFindings = entrySummary.counts.major + entrySummary.counts.minor + entrySummary.counts.observe;
+      return `<article class="recent-audit ${entry.id === audit.id ? "active" : ""}" data-audit-id="${escapeHtml(entry.id)}"><button type="button" class="recent-audit-open" data-recent-action="open" aria-label="เปิดแบบตรวจ ${escapeHtml(entry.meta?.area || "ยังไม่ระบุพื้นที่")}"><span class="recent-date">${escapeHtml(formatDate(entry.meta?.auditDate))}</span><span><b>${escapeHtml(entry.meta?.area || "ยังไม่ระบุพื้นที่")}</b><small>${escapeHtml(auditTypeLabel(entry.meta?.auditType))} · ${escapeHtml(entry.meta?.site || "ยังไม่ระบุ Site")} · ${escapeHtml(entry.meta?.department || "—")} · ${entrySummary.answered}/${entrySummary.total} ข้อ</small></span><span class="recent-result"><b>${displayPercent(entrySummary.percent)}${entrySummary.percent === null ? "" : "%"}</b><small>${entryFindings} ข้อพบ</small></span></button><div class="recent-audit-actions"><button type="button" class="recent-edit-button" data-recent-action="edit">แก้ไข</button><button type="button" class="recent-delete-button" data-recent-action="delete">ลบ</button></div></article>`;
+    };
+    const sortedRecentGroups = [...recentGroups.entries()].sort(([monthA], [monthB]) => monthA === "unspecified" ? 1 : monthB === "unspecified" ? -1 : monthB.localeCompare(monthA));
+
+    els.dashboardView.innerHTML = `
+      <section class="dashboard-hero">
+        <div><span class="eyebrow">KCG Corporation · Quality System</span><h2>Dashboard ภาพรวมการตรวจ GHP</h2></div>
+        <div class="dashboard-hero-actions">
+          <button type="button" class="dashboard-action audit-action" data-dashboard-action="audit"><span class="dashboard-action-icon" aria-hidden="true">✎</span><span class="dashboard-action-copy"><strong>กรอกแบบตรวจ</strong><small>${auditTypeLabel(audit.meta.auditType)} · ${currentStats.answered ? `ทำต่อจาก ${currentStats.answered}/${currentStats.total} ข้อ` : "เริ่มการตรวจประเมิน"}</small></span><span class="dashboard-action-arrow" aria-hidden="true">→</span></button>
+          <button type="button" class="dashboard-action finding-entry-action" data-dashboard-action="enter-defect"><span class="dashboard-action-icon" aria-hidden="true">＋</span><span class="dashboard-action-copy"><strong>กรอกข้อบกพร่อง</strong><small>เริ่มบันทึกได้ทันที แม้ยังไม่ได้กรอกข้อมูลการตรวจ</small></span><span class="dashboard-action-arrow" aria-hidden="true">→</span></button>
+          <button type="button" class="dashboard-action defect-action ${currentOpenFindings.length ? "has-findings" : ""}" data-dashboard-action="defects"><span class="dashboard-action-icon" aria-hidden="true">!</span><span class="dashboard-action-copy"><strong>ตอบกลับข้อบกพร่อง</strong><small>${currentOpenFindings.length ? `${currentOpenFindings.length} รายการรอดำเนินการ` : "ยังไม่มีรายการเปิด"}</small></span>${currentOpenFindings.length ? `<span class="dashboard-action-count" aria-label="${currentOpenFindings.length} รายการ">${currentOpenFindings.length}</span>` : `<span class="dashboard-action-arrow" aria-hidden="true">→</span>`}</button>
+          <button type="button" class="dashboard-action print-action" data-dashboard-action="print-blank"><span class="dashboard-action-icon" aria-hidden="true">▤</span><span class="dashboard-action-copy"><strong>พิมพ์ฟอร์มเปล่า</strong><small>สำหรับกรอกผลการตรวจบนกระดาษ</small></span><span class="dashboard-action-arrow" aria-hidden="true">→</span></button>
+        </div>
+      </section>
+      <section class="dashboard-filter-card" aria-label="ตัวกรอง Dashboard">
+        <div class="dashboard-filter-heading"><div><span class="eyebrow">Dashboard filters</span><h3>กรองข้อมูลการตรวจ</h3></div><div><span>แสดง ${filteredAudits.length} จาก ${audits.length} แบบตรวจ</span><button type="button" data-dashboard-action="reset-filters" ${activeFilterCount ? "" : "disabled"}>ล้างตัวกรอง</button></div></div>
+        <div class="dashboard-filter-grid">
+          <label><span>ประจำเดือน</span><select data-dashboard-filter="month">${`<option value="all">ทุกเดือน</option>${monthValues.map((month) => `<option value="${escapeHtml(month)}" ${dashboardFilters.month === month ? "selected" : ""}>${escapeHtml(formatAuditMonth(month))}</option>`).join("")}`}</select></label>
+          <label><span>Site / สถานที่ตั้ง</span><select data-dashboard-filter="site">${dashboardFilterOptions(siteValues, dashboardFilters.site, "ทุก Site")}</select></label>
+          <label><span>แผนก / Zone</span><select data-dashboard-filter="zone">${dashboardFilterOptions(zoneValues, dashboardFilters.zone, "ทุกแผนก / Zone")}</select></label>
+          <label><span>Zone Location / พื้นที่ตรวจ</span><select data-dashboard-filter="area">${dashboardFilterOptions(areaValues, dashboardFilters.area, "ทุกพื้นที่ตรวจ")}</select></label>
+          <label><span>ประเภทแบบตรวจ</span><select data-dashboard-filter="type"><option value="all">ทุกประเภท</option>${Object.entries(checklistSets).map(([type, checklist]) => `<option value="${escapeHtml(type)}" ${dashboardFilters.type === type ? "selected" : ""}>${escapeHtml(checklist.label)}</option>`).join("")}</select></label>
+        </div>
+      </section>
+      <section class="metric-grid" aria-label="สรุปข้อมูลตามตัวกรอง">
+        <article class="metric-card score"><span>จำนวนแบบตรวจ</span><strong>${filteredAudits.length}<small> แบบ</small></strong><p>เสร็จสิ้น ${completeAudits} · ฉบับร่าง ${filteredAudits.length - completeAudits}</p></article>
+        <article class="metric-card progress"><span>คะแนนเฉลี่ย</span><strong>${displayPercent(averageScore)}<small>${averageScore === null ? "" : "%"}</small></strong><p>คำนวณจาก ${scored.length} แบบตรวจที่มีคะแนน</p><div class="metric-progress"><i style="width:${chartPercent(averageScore)}%"></i></div></article>
+        <article class="metric-card findings"><span>ข้อบกพร่องทั้งหมด</span><strong>${totalFindings}<small> ข้อ</small></strong><p>รอดำเนินการ ${openFindings} · ปิดแล้ว ${closedFindings}</p></article>
+        <article class="metric-card status"><span>อัตราปิดข้อบกพร่อง</span><strong>${closureRate === null ? "—" : closureRate}<small>${closureRate === null ? "" : "%"}</small></strong><p>${totalFindings ? `ปิดแล้ว ${closedFindings} จาก ${totalFindings} ข้อ` : "ยังไม่มีข้อบกพร่อง"}</p></article>
+      </section>
+      <section class="dashboard-chart-grid" aria-label="กราฟวิเคราะห์ผลการตรวจ">
+        <article class="dashboard-card trend-chart-card"><div class="card-heading"><div><span class="eyebrow">Score trend</span><h3>แนวโน้มคะแนนเฉลี่ยรายเดือน</h3></div><small>ล่าสุดไม่เกิน 6 เดือน</small></div>${trendData.length ? `<div class="trend-chart" role="img" aria-label="กราฟคะแนนเฉลี่ยรายเดือน">${trendData.map((point) => `<div class="trend-column" title="${escapeHtml(formatAuditMonth(point.month))}: ${displayPercent(point.average)}${point.average === null ? "" : "%"} จาก ${point.count} แบบ"><span>${displayPercent(point.average)}${point.average === null ? "" : "%"}</span><div><i style="height:${Math.max(chartPercent(point.average), 4)}%"></i></div><small>${escapeHtml(formatAuditMonthShort(point.month))}</small><em>${point.count} แบบ</em></div>`).join("")}</div>` : `<div class="dashboard-empty compact">ยังไม่มีข้อมูลสำหรับแสดงแนวโน้ม</div>`}</article>
+        <article class="dashboard-card finding-chart-card"><div class="card-heading"><div><span class="eyebrow">Finding mix</span><h3>สัดส่วนข้อบกพร่อง</h3></div></div><div class="finding-donut-wrap"><div class="finding-donut ${totalFindings ? "" : "empty"}" style="${donutStyle}" role="img" aria-label="ข้อบกพร่องรวม ${totalFindings} ข้อ"><span><b>${totalFindings}</b><small>ข้อพบ</small></span></div><div class="chart-legend">${["major", "minor", "observe"].map((rating) => `<span><i class="dot ${rating}"></i>${FINDING_RULES[rating].label}<b>${ratingCounts[rating]}</b></span>`).join("")}</div></div></article>
+        <article class="dashboard-card site-chart-card"><div class="card-heading"><div><span class="eyebrow">Site comparison</span><h3>คะแนนเฉลี่ยแยกตาม Site</h3></div></div>${siteData.length ? `<div class="site-bars">${siteData.map((point) => `<div class="site-bar"><div><span>${escapeHtml(point.site)}</span><b>${displayPercent(point.average)}${point.average === null ? "" : "%"}</b></div><div class="site-bar-track"><i style="width:${chartPercent(point.average)}%"></i></div><small>${point.count} แบบตรวจ</small></div>`).join("")}</div>` : `<div class="dashboard-empty compact">ยังไม่มีข้อมูล Site สำหรับเปรียบเทียบ</div>`}</article>
+      </section>
+      <section class="dashboard-row">
+        <article class="dashboard-card severity-card"><div class="card-heading"><div><span class="eyebrow">Current audit</span><h3>ข้อบกพร่องของแบบตรวจที่เปิดอยู่</h3></div><button type="button" class="text-button" data-dashboard-action="defects">ดูและตอบกลับ</button></div><div class="severity-list">${["major", "minor", "observe"].map((rating) => `<button type="button" data-dashboard-action="defects" class="severity-item ${rating}"><span><i class="dot ${rating}"></i>${FINDING_RULES[rating].label}</span><strong>${currentStats.counts[rating]}</strong><small>${FINDING_RULES[rating].deadline}</small></button>`).join("")}</div>${currentFindings.length ? `<div class="closure-progress"><div><span>การปิดข้อบกพร่อง</span><b>${currentFindings.length - currentOpenFindings.length}/${currentFindings.length}</b></div><div class="metric-progress"><i style="width:${Math.round(((currentFindings.length - currentOpenFindings.length) / currentFindings.length) * 100)}%"></i></div></div>` : `<div class="dashboard-empty compact">ยังไม่พบ Major, Minor หรือ Observe</div>`}</article>
+        <article class="dashboard-card recent-card"><div class="card-heading"><div><span class="eyebrow">Filtered records</span><h3>แบบตรวจล่าสุด</h3></div><button type="button" class="text-button" data-dashboard-action="history">ดูทั้งหมด</button></div><div class="dashboard-recent">${recent.length ? sortedRecentGroups.map(([month, monthAudits]) => `<section class="recent-month-group"><header><h4>${escapeHtml(formatAuditMonth(month))}</h4><span>${monthAudits.length} แบบตรวจ</span></header><div>${monthAudits.map(recentAuditHtml).join("")}</div></section>`).join("") : `<div class="dashboard-empty compact">${audits.length ? "ไม่พบแบบตรวจตามตัวกรอง" : "ยังไม่มีแบบตรวจ"}</div>`}</div></article>
+      </section>`;
   }
 
   function renderDefects() {
@@ -1151,8 +1225,16 @@
       if (button) navigate(button.dataset.step);
     });
     els.homeButton.addEventListener("click", () => navigate("dashboard"));
+    els.themeToggle.addEventListener("click", () => {
+      applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+    });
     els.dashboardView.addEventListener("click", async (event) => {
       const action = event.target.closest("[data-dashboard-action]")?.dataset.dashboardAction;
+      if (action === "reset-filters") {
+        dashboardFilters = { month: "all", site: "all", zone: "all", area: "all", type: "all" };
+        renderDashboard();
+        return;
+      }
       if (action === "audit") navigate("meta");
       if (action === "enter-defect") enterDefectEntry();
       if (action === "defects") navigate("defects");
@@ -1188,8 +1270,16 @@
       }
     });
     els.dashboardView.addEventListener("change", (event) => {
-      if (event.target.id !== "dashboardMonthFilter") return;
-      dashboardMonthFilter = event.target.value;
+      const filter = event.target.closest("[data-dashboard-filter]");
+      if (!filter) return;
+      const key = filter.dataset.dashboardFilter;
+      if (!Object.prototype.hasOwnProperty.call(dashboardFilters, key)) return;
+      dashboardFilters[key] = filter.value;
+      if (key === "site") {
+        dashboardFilters.zone = "all";
+        dashboardFilters.area = "all";
+      }
+      if (key === "zone") dashboardFilters.area = "all";
       renderDashboard();
     });
     els.itemSearch.addEventListener("input", () => { searchTerm = els.itemSearch.value; renderChecklist(); });
@@ -1694,7 +1784,7 @@
 
   async function init() {
     Object.assign(els, {
-      homeButton: $("homeButton"), historyButton: $("historyButton"), saveStatus: $("saveStatus"),
+      homeButton: $("homeButton"), historyButton: $("historyButton"), themeToggle: $("themeToggle"), saveStatus: $("saveStatus"),
       progressText: $("progressText"), progressBar: $("progressBar"), progressHint: $("progressHint"),
       sectionNav: $("sectionNav"), scoringButton: $("scoringButton"), dashboardView: $("dashboardView"), metaView: $("metaView"), checklistView: $("checklistView"), defectsView: $("defectsView"), adminView: $("adminView"),
       sectionEyebrow: $("sectionEyebrow"), sectionTitle: $("sectionTitle"), sectionSubtitle: $("sectionSubtitle"), sectionScore: $("sectionScore"),
@@ -1703,6 +1793,8 @@
       mobileScore: $("mobileScore"), mobileNextButton: $("mobileNextButton"), exportDialog: $("exportDialog"), scoringDialog: $("scoringDialog"),
       historyDialog: $("historyDialog"), historyList: $("historyList"), newAuditButton: $("newAuditButton"), toast: $("toast"), printReport: $("printReport"),
     });
+    const savedTheme = localStorage.getItem(THEME_KEY);
+    applyTheme(savedTheme === "dark" || savedTheme === "light" ? savedTheme : (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
     try {
       db = await openDatabase();
       await loadChecklistSettings();

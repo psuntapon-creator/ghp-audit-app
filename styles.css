@@ -843,3 +843,102 @@ button { color: inherit; }
   .rating-button { border-radius: 13px; }
   .mobile-footer { left: 0; }
 }
+
+/* Dashboard analytics, global filters, and light/dark appearance */
+.theme-toggle { font-size: 16px; line-height: 1; }
+.dashboard-filter-card { margin: 18px 0; padding: 21px 23px; border: 1px solid var(--line); border-radius: 23px; background: var(--surface); box-shadow: 0 12px 32px rgba(42,43,46,.06); }
+.dashboard-filter-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 15px; }
+.dashboard-filter-heading h3 { margin: 4px 0 0; font-size: 17px; }
+.dashboard-filter-heading > div:last-child { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 9px; }
+.dashboard-filter-heading button { border: 0; border-radius: 999px; padding: 7px 11px; color: var(--primary); background: var(--primary-soft); font-size: 9px; font-weight: 700; cursor: pointer; }
+.dashboard-filter-heading button:disabled { opacity: .45; cursor: default; }
+.dashboard-filter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 11px; }
+.dashboard-filter-grid label { min-width: 0; display: grid; gap: 6px; }
+.dashboard-filter-grid label > span { color: var(--muted); font-size: 9px; font-weight: 700; }
+.dashboard-filter-grid select { width: 100%; min-width: 0; min-height: 42px; border: 1px solid var(--line); border-radius: 12px; padding: 9px 31px 9px 11px; color: var(--ink); background: var(--surface); outline: 0; font-size: 10px; }
+.dashboard-filter-grid select:focus { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(219,36,28,.09); }
+.dashboard-chart-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(250px, .65fr); gap: 15px; margin-bottom: 15px; }
+.dashboard-chart-grid .card-heading { margin-bottom: 14px; }
+.dashboard-chart-grid .card-heading > small { color: var(--muted); font-size: 8px; }
+.site-chart-card { grid-column: 1 / -1; }
+.trend-chart { min-height: 220px; display: flex; align-items: stretch; justify-content: space-around; gap: 10px; padding: 8px 5px 0; border-bottom: 1px solid var(--line); }
+.trend-column { min-width: 52px; flex: 1; display: grid; grid-template-rows: 21px 150px auto auto; justify-items: center; align-items: end; gap: 4px; }
+.trend-column > span { color: var(--ink); font-size: 9px; font-weight: 800; }
+.trend-column > div { width: min(42px, 75%); height: 150px; display: flex; align-items: flex-end; border-radius: 9px 9px 0 0; background: linear-gradient(180deg, transparent, rgba(219,36,28,.04)); }
+.trend-column i { display: block; width: 100%; min-height: 6px; border-radius: 9px 9px 2px 2px; background: linear-gradient(180deg, var(--primary), var(--brand-yellow, #f0bd00)); box-shadow: 0 8px 18px rgba(219,36,28,.16); }
+.trend-column small { color: var(--ink); font-size: 8px; font-weight: 700; white-space: nowrap; }
+.trend-column em { color: var(--muted); font-size: 7px; font-style: normal; white-space: nowrap; }
+.finding-donut-wrap { min-height: 220px; display: grid; align-content: center; justify-items: center; gap: 18px; }
+.finding-donut { width: 142px; height: 142px; display: grid; place-items: center; border-radius: 50%; position: relative; }
+.finding-donut.empty { background: #ecebe8; }
+.finding-donut::after { content: ""; width: 88px; height: 88px; border-radius: 50%; background: var(--surface); position: absolute; box-shadow: inset 0 0 0 1px var(--line); }
+.finding-donut > span { position: relative; z-index: 1; text-align: center; }
+.finding-donut b, .finding-donut small { display: block; }
+.finding-donut b { font-size: 26px; line-height: 1; }
+.finding-donut small { margin-top: 5px; color: var(--muted); font-size: 8px; }
+.chart-legend { width: 100%; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.chart-legend > span { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 5px; color: var(--muted); font-size: 8px; }
+.chart-legend b { color: var(--ink); }
+.site-bars { display: grid; gap: 12px; }
+.site-bar { display: grid; grid-template-columns: minmax(140px, .8fr) minmax(180px, 1.2fr) 58px; align-items: center; gap: 12px; }
+.site-bar > div:first-child { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.site-bar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; font-weight: 700; }
+.site-bar b { color: var(--primary); font-size: 10px; }
+.site-bar-track { height: 9px; border-radius: 99px; overflow: hidden; background: #ecebe8; }
+.site-bar-track i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--brand-blue, #003d9e), var(--brand-green, #00b189)); }
+.site-bar small { color: var(--muted); font-size: 8px; text-align: right; }
+
+@media screen and (max-width: 1120px) {
+  .dashboard-filter-grid { grid-template-columns: 1fr 1fr; }
+}
+
+@media screen and (max-width: 760px) {
+  .dashboard-filter-card { padding: 18px; border-radius: 20px; }
+  .dashboard-filter-heading { align-items: flex-start; flex-direction: column; }
+  .dashboard-filter-heading > div:last-child { width: 100%; justify-content: space-between; }
+  .dashboard-filter-grid { grid-template-columns: 1fr; }
+  .dashboard-chart-grid { grid-template-columns: 1fr; }
+  .site-chart-card { grid-column: auto; }
+  .trend-chart { justify-content: flex-start; overflow-x: auto; padding-bottom: 7px; }
+  .trend-column { min-width: 60px; }
+  .site-bar { grid-template-columns: 1fr 54px; gap: 7px; }
+  .site-bar-track { grid-column: 1 / -1; grid-row: 2; }
+  .site-bar small { grid-column: 2; grid-row: 1; }
+}
+
+@media screen {
+  html[data-theme="dark"] {
+    color-scheme: dark;
+    --ink: #f1f2f3;
+    --muted: #a9adb2;
+    --line: #3a3d42;
+    --surface: #22252a;
+    --canvas: #15171a;
+    --primary-soft: #3b2425;
+    --shadow: 0 20px 50px rgba(0,0,0,.28);
+  }
+  html[data-theme="dark"] body { background: radial-gradient(circle at 96% 4%, rgba(240,189,0,.06), transparent 18rem), var(--canvas); }
+  html[data-theme="dark"] .topbar { background: rgba(26,28,32,.96); border-bottom-color: var(--line); }
+  html[data-theme="dark"] .brand strong,
+  html[data-theme="dark"] .field span,
+  html[data-theme="dark"] .item-text { color: var(--ink); }
+  html[data-theme="dark"] .sidebar,
+  html[data-theme="dark"] .score-rail { background: rgba(27,29,33,.86); }
+  html[data-theme="dark"] :is(.form-card,.check-item,.dashboard-card,.dashboard-filter-card,.metric-card,.score-card,.admin-login-card,.admin-master-card,.admin-section,.admin-data-card,.admin-checklist-picker,.history-item,.modal) { color: var(--ink); background: var(--surface); }
+  html[data-theme="dark"] :is(.field input,.field textarea,.field select,.dashboard-filter-grid select,.zone-checklist-field select,.admin-master-grid input,.admin-question textarea,.search-box,.icon-button,.button.secondary) { color: var(--ink); background: #292c31; border-color: var(--line); }
+  html[data-theme="dark"] :is(.checklist-section-block > header,.finding-panel,.defect-card-head,.admin-section > header,.admin-master-grid > section,.recent-audit,.severity-item,.dashboard-empty,.export-option,.profile-option) { color: var(--ink); background: #1d2024; border-color: var(--line); }
+  html[data-theme="dark"] :is(.nav-item:hover,.rating-button,.admin-add-question) { color: var(--ink); background: #292c31; }
+  html[data-theme="dark"] .nav-item.active { color: #ffb2ad; background: #3b2425; }
+  html[data-theme="dark"] .nav-number { color: var(--muted); background: #32353a; }
+  html[data-theme="dark"] .recent-audit:hover,
+  html[data-theme="dark"] .recent-audit.active { background: #332426; border-color: #8d4541; }
+  html[data-theme="dark"] .recent-audit-actions button { background: #282b30; }
+  html[data-theme="dark"] .recent-edit-button { color: #79d5c6; }
+  html[data-theme="dark"] .recent-delete-button { color: #ff8f88; }
+  html[data-theme="dark"] .finding-donut.empty,
+  html[data-theme="dark"] .site-bar-track,
+  html[data-theme="dark"] .metric-progress { background: #383b40; }
+  html[data-theme="dark"] .finding-donut::after { background: var(--surface); }
+  html[data-theme="dark"] .result-badge.neutral { color: var(--ink); background: #34373c; }
+  html[data-theme="dark"] .toast { background: #f1f2f3; color: #202226; }
+}

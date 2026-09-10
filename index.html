@@ -7,10 +7,11 @@
     <meta name="description" content="แอปบันทึกผลตรวจประเมิน GHP สำหรับพื้นที่ผลิต" />
     <title>KCG GHP Audit Report</title>
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=admin-zone-management-1" />
-    <script src="data.js?v=admin-zone-management-1" defer></script>
-    <script src="checklist-types.js?v=admin-zone-management-1" defer></script>
-    <script src="app.js?v=admin-zone-management-1" defer></script>
+    <script>try{document.documentElement.dataset.theme=localStorage.getItem("ghp-color-theme")||((matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light")}catch(e){document.documentElement.dataset.theme="light"}</script>
+    <link rel="stylesheet" href="styles.css?v=dashboard-theme-filters-1" />
+    <script src="data.js?v=dashboard-theme-filters-1" defer></script>
+    <script src="checklist-types.js?v=dashboard-theme-filters-1" defer></script>
+    <script src="app.js?v=dashboard-theme-filters-1" defer></script>
   </head>
   <body>
     <header class="topbar">
@@ -20,6 +21,7 @@
       </button>
       <div class="top-actions">
         <span class="save-status" id="saveStatus"><span class="save-dot"></span>บันทึกแล้ว</span>
+        <button class="icon-button theme-toggle" id="themeToggle" type="button" title="สลับโหมดสี" aria-label="สลับโหมดสี">☾</button>
         <button class="icon-button" id="historyButton" type="button" title="รายการแบบตรวจ" aria-label="รายการแบบตรวจ">⌂</button>
         <button class="avatar" type="button" title="ผู้ตรวจ">QS</button>
       </div>
