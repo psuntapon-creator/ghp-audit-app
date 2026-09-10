@@ -8,10 +8,12 @@
     <title>KCG GHP Audit Report</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <script>try{document.documentElement.dataset.theme=localStorage.getItem("ghp-color-theme")||((matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light")}catch(e){document.documentElement.dataset.theme="light"}</script>
-    <link rel="stylesheet" href="styles.css?v=multi-report-export-1" />
-    <script src="data.js?v=multi-report-export-1" defer></script>
-    <script src="checklist-types.js?v=multi-report-export-1" defer></script>
-    <script src="app.js?v=multi-report-export-1" defer></script>
+    <link rel="stylesheet" href="styles.css?v=supabase-cloud-1" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+    <script src="supabase-config.js?v=supabase-cloud-1" defer></script>
+    <script src="data.js?v=supabase-cloud-1" defer></script>
+    <script src="checklist-types.js?v=supabase-cloud-1" defer></script>
+    <script src="app.js?v=supabase-cloud-1" defer></script>
   </head>
   <body>
     <header class="topbar">
@@ -20,6 +22,7 @@
         <span class="brand-copy"><strong>KCG GHP Audit Report</strong><small>Quality System</small></span>
       </button>
       <div class="top-actions">
+        <span class="cloud-status connecting" id="cloudStatus"><span class="cloud-dot"></span>กำลังเชื่อมต่อ Cloud</span>
         <span class="save-status" id="saveStatus"><span class="save-dot"></span>บันทึกแล้ว</span>
         <button class="icon-button theme-toggle" id="themeToggle" type="button" title="สลับโหมดสี" aria-label="สลับโหมดสี">☾</button>
         <button class="icon-button" id="historyButton" type="button" title="รายการแบบตรวจ" aria-label="รายการแบบตรวจ">⌂</button>
@@ -107,7 +110,7 @@
           <button class="button secondary" id="exportButton" type="button">ส่งออกข้อมูล</button>
           <button class="button primary" id="completeButton" type="button">เสร็จสิ้นการตรวจ</button>
         </div>
-        <p class="privacy-note">ข้อมูลบันทึกอยู่บนอุปกรณ์นี้ จนกว่าจะส่งออกหรือลบ</p>
+        <p class="privacy-note">ซิงก์ข้อมูลส่วนกลางผ่าน Supabase และเก็บสำเนาออฟไลน์บนอุปกรณ์นี้</p>
       </aside>
     </div>
 
@@ -155,7 +158,7 @@
     <dialog id="historyDialog" class="modal history-modal">
       <form method="dialog">
         <div class="modal-head">
-          <div><span class="eyebrow">บนอุปกรณ์นี้</span><h3>รายการแบบตรวจ</h3></div>
+          <div><span class="eyebrow">ฐานข้อมูลส่วนกลาง</span><h3>รายการแบบตรวจ</h3></div>
           <button class="icon-button" value="cancel" aria-label="ปิด">×</button>
         </div>
         <div id="historyList" class="history-list"></div>

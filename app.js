@@ -108,6 +108,132 @@
   let checklistSaveTimer;
   let toastTimer;
   let isAdmin = sessionStorage.getItem("ghp-admin-session") === "active";
+  let cloudClient = null;
+  let cloudUserId = "";
+  let cloudReady = false;
+  let cloudListPromise = null;
+
+  function updateCloudStatus(mode, text) {
+    if (!els.cloudStatus) return;
+    els.cloudStatus.className = `cloud-status ${mode || ""}`.trim();
+    els.cloudStatus.lastChild.textContent = text;
+  }
+
+  async function initCloudDatabase() {
+    const config = window.GHP_SUPABASE || {};
+    if (!config.url || !config.publishableKey || !window.supabase?.createClient) {
+      updateCloudStatus("offline", "โหมดออฟไลน์");
+      return false;
+    }
+    updateCloudStatus("connecting", "กำลังเชื่อมต่อ Cloud");
+    try {
+      cloudClient = window.supabase.createClient(config.url, config.publishableKey, {
+        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
+      });
+      let { data: { session } } = await cloudClient.auth.getSession();
+      if (!session) {
+        const { data, error } = await cloudClient.auth.signInAnonymously();
+        if (error) throw error;
+        session = data.session;
+      }
+      cloudUserId = session?.user?.id || "";
+      if (!cloudUserId) throw new Error("Supabase anonymous session is unavailable");
+      cloudReady = true;
+      updateCloudStatus("", "Cloud เชื่อมต่อแล้ว");
+      return true;
+    } catch (error) {
+      console.error("Unable to connect Supabase", error);
+      cloudClient = null;
+      cloudReady = false;
+      updateCloudStatus("offline", "Cloud ไม่พร้อม · ออฟไลน์");
+      return false;
+    }
+  }
+
+  function settingsPayload() {
+    return {
+      checklists: checklistSets,
+      masterData,
+      siteZoneLocations,
+      siteZoneChecklistTypes,
+      dashboardManualData,
+      siteZoneDataVersion: SITE_ZONE_DATA_VERSION,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  async function saveCloudSettings(payload) {
+    if (!cloudReady) return;
+    const { error } = await cloudClient.from("app_settings").upsert({ id: "global", payload, updated_at: payload.updatedAt });
+    if (error) throw error;
+  }
+
+  function cloudAuditRow(entry) {
+    return {
+      id: entry.id,
+      payload: entry,
+      site: entry.meta?.site || null,
+      zone: entry.meta?.department || null,
+      area: entry.meta?.area || null,
+      audit_month: entry.meta?.auditMonth || entry.meta?.auditDate?.slice(0, 7) || null,
+      audit_date: entry.meta?.auditDate || null,
+      audit_type: entry.meta?.auditType || "production",
+      status: entry.status || "draft",
+      created_by: cloudUserId || null,
+      updated_at: entry.updatedAt || new Date().toISOString(),
+    };
+  }
+
+  async function saveCloudAudit(entry) {
+    if (!cloudReady) return;
+    const { error } = await cloudClient.from("audits").upsert(cloudAuditRow(entry));
+    if (error) throw error;
+  }
+
+  async function getAuditRecord(id) {
+    const local = await dbRequest("readonly", (store) => store.get(id));
+    if (local) return normalizeAudit(local);
+    if (!cloudReady) return null;
+    const { data, error } = await cloudClient.from("audits").select("payload").eq("id", id).maybeSingle();
+    if (error) throw error;
+    if (!data?.payload) return null;
+    const entry = normalizeAudit(data.payload);
+    await dbRequest("readwrite", (store) => store.put(entry));
+    return entry;
+  }
+
+  async function deleteAuditRecord(id) {
+    const entry = await getAuditRecord(id);
+    if (cloudReady) {
+      const photoUrls = entry ? Object.values(entry.responses || {}).flatMap((response) => [
+        ...(response.findingEntries || []).flatMap((finding) => finding.photos || []),
+        ...(response.photos || []),
+        ...(response.closurePhotos || []),
+      ]) : [];
+      await deleteStoredPhotos(photoUrls);
+      const { error } = await cloudClient.from("audits").delete().eq("id", id);
+      if (error) throw error;
+    }
+    await dbRequest("readwrite", (store) => store.delete(id));
+  }
+
+  function storagePathFromUrl(value) {
+    if (typeof value !== "string" || !value.includes("/storage/v1/object/public/audit-photos/")) return "";
+    try {
+      const marker = "/storage/v1/object/public/audit-photos/";
+      return decodeURIComponent(new URL(value).pathname.split(marker)[1] || "");
+    } catch (error) {
+      return "";
+    }
+  }
+
+  async function deleteStoredPhotos(values) {
+    if (!cloudReady) return;
+    const paths = [...new Set((values || []).map(storagePathFromUrl).filter(Boolean))];
+    if (!paths.length) return;
+    const { error } = await cloudClient.storage.from("audit-photos").remove(paths);
+    if (error) throw error;
+  }
 
   function normalizeDashboardManualData(value) {
     const normalizedNumber = (input, max = Infinity) => {
@@ -352,6 +478,24 @@
     } catch (error) {
       console.warn("Unable to read checklist settings", error);
     }
+    if (cloudReady) {
+      try {
+        const { data, error } = await cloudClient.from("app_settings").select("payload, updated_at").eq("id", "global").maybeSingle();
+        if (error) throw error;
+        const remote = data?.payload || null;
+        const localTime = Date.parse(saved?.updatedAt || "") || 0;
+        const remoteTime = Date.parse(remote?.updatedAt || data?.updated_at || "") || 0;
+        if (remote && remoteTime >= localTime) {
+          saved = remote;
+          localStorage.setItem(SETTINGS_KEY, JSON.stringify(remote));
+        } else if (saved) {
+          await saveCloudSettings(saved);
+        }
+      } catch (error) {
+        console.error("Unable to sync checklist settings", error);
+        updateCloudStatus("offline", "Cloud ขัดข้อง · ใช้สำเนาออฟไลน์");
+      }
+    }
     if (saved?.checklists && typeof saved.checklists === "object") {
       Object.keys(DEFAULT_CHECKLISTS).forEach((type) => {
         if (Array.isArray(saved.checklists[type]?.sections) && saved.checklists[type].sections.length) {
@@ -395,9 +539,24 @@
       });
     });
     activateChecklist(activeChecklistType);
+    if (cloudReady && !saved) {
+      const initialSettings = settingsPayload();
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(initialSettings));
+      await saveCloudSettings(initialSettings);
+    }
   }
   async function saveChecklistSettings() {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ checklists: checklistSets, masterData, siteZoneLocations, siteZoneChecklistTypes, dashboardManualData, siteZoneDataVersion: SITE_ZONE_DATA_VERSION, updatedAt: new Date().toISOString() }));
+    const payload = settingsPayload();
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(payload));
+    if (cloudReady) {
+      try {
+        await saveCloudSettings(payload);
+        updateCloudStatus("", "Cloud เชื่อมต่อแล้ว");
+      } catch (error) {
+        console.error("Unable to save shared settings", error);
+        updateCloudStatus("offline", "รอซิงก์ · บันทึกออฟไลน์แล้ว");
+      }
+    }
   }
   function scheduleChecklistSave() {
     els.saveStatus.classList.add("saving");
@@ -414,9 +573,18 @@
       }
     }, 450);
   }
-  function saveNow() {
+  async function saveNow() {
     audit.updatedAt = new Date().toISOString();
-    return dbRequest("readwrite", (store) => store.put(audit));
+    await dbRequest("readwrite", (store) => store.put(audit));
+    if (cloudReady) {
+      try {
+        await saveCloudAudit(audit);
+        updateCloudStatus("", "Cloud เชื่อมต่อแล้ว");
+      } catch (error) {
+        console.error("Unable to save shared audit", error);
+        updateCloudStatus("offline", "รอซิงก์ · บันทึกออฟไลน์แล้ว");
+      }
+    }
   }
   function scheduleSave() {
     els.saveStatus.classList.add("saving");
@@ -436,8 +604,43 @@
     }, 350);
   }
   async function listAudits() {
-    const results = await dbRequest("readonly", (store) => store.getAll());
-    return results.map(normalizeAudit).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    if (cloudListPromise) return cloudListPromise;
+    cloudListPromise = (async () => {
+      const localResults = (await dbRequest("readonly", (store) => store.getAll())).map(normalizeAudit);
+      if (!cloudReady) return localResults.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      try {
+        const { data, error } = await cloudClient.from("audits").select("id,payload,updated_at").order("updated_at", { ascending: false });
+        if (error) throw error;
+        const merged = new Map();
+        (data || []).forEach((row) => {
+          if (!row.payload) return;
+          const entry = normalizeAudit(row.payload);
+          if (!entry.updatedAt && row.updated_at) entry.updatedAt = row.updated_at;
+          merged.set(entry.id, entry);
+        });
+        const uploads = [];
+        localResults.forEach((entry) => {
+          const remote = merged.get(entry.id);
+          if (!remote || String(entry.updatedAt || "") > String(remote.updatedAt || "")) {
+            merged.set(entry.id, entry);
+            uploads.push(saveCloudAudit(entry));
+          }
+        });
+        await Promise.all(uploads);
+        await Promise.all([...merged.values()].map((entry) => dbRequest("readwrite", (store) => store.put(entry))));
+        updateCloudStatus("", "Cloud เชื่อมต่อแล้ว");
+        return [...merged.values()].sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+      } catch (error) {
+        console.error("Unable to load shared audits", error);
+        updateCloudStatus("offline", "Cloud ขัดข้อง · ใช้สำเนาออฟไลน์");
+        return localResults.sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+      }
+    })();
+    try {
+      return await cloudListPromise;
+    } finally {
+      cloudListPromise = null;
+    }
   }
 
   function normalizeAudit(entry) {
@@ -596,9 +799,6 @@
   }
 
   async function renderDashboard() {
-    const currentStats = getStats();
-    const currentFindings = getFindings();
-    const currentOpenFindings = currentFindings.filter(({ response }) => response.actionStatus !== "closed");
     let audits = [];
     try {
       audits = await listAudits();
@@ -606,6 +806,14 @@
       console.error(error);
     }
     if (currentStep !== "dashboard") return;
+    const sharedCurrent = audits.find((entry) => entry.id === audit.id);
+    if (sharedCurrent && String(sharedCurrent.updatedAt || "") > String(audit.updatedAt || "")) {
+      audit = sharedCurrent;
+      activateAuditChecklist();
+    }
+    const currentStats = getStats();
+    const currentFindings = getFindings();
+    const currentOpenFindings = currentFindings.filter(({ response }) => response.actionStatus !== "closed");
 
     const monthValues = [...new Set(audits.map(auditMonthFor))].sort((a, b) => b.localeCompare(a));
     const siteValues = [...new Set(audits.map((entry) => entry.meta?.site).filter(Boolean))].sort((a, b) => a.localeCompare(b, "th"));
@@ -807,9 +1015,9 @@
     if (!isAdmin) {
       els.adminView.innerHTML = `<section class="admin-login-card">
         <div class="admin-lock">▣</div><span class="eyebrow">Restricted area</span><h2>เข้าสู่ระบบผู้ดูแล</h2>
-        <p>ผู้ตรวจทั่วไปไม่ต้อง Login ส่วนเมนูนี้ใช้สำหรับจัดการคำถามและข้อมูลระบบบนอุปกรณ์นี้</p>
+        <p>ผู้ตรวจทั่วไปไม่ต้อง Login ส่วนเมนูนี้ใช้สำหรับจัดการคำถามและข้อมูลระบบส่วนกลาง</p>
         <form data-admin-login><label class="field"><span>รหัสผู้ดูแลระบบ</span><input type="password" name="adminPassword" autocomplete="current-password" required placeholder="กรอกรหัส Admin" /></label><button class="button primary" type="submit">เข้าสู่ระบบ Admin</button></form>
-        <small class="admin-scope-note">Local Admin · ข้อมูลและการตั้งค่ามีผลเฉพาะเบราว์เซอร์นี้</small>
+        <small class="admin-scope-note">Cloud Admin · การตั้งค่าจะซิงก์ไปยังผู้ใช้งานทุกอุปกรณ์</small>
       </section>`;
       return;
     }
@@ -830,15 +1038,15 @@
     const zoneScoreRows = [...dashboardManualData.zoneScores].sort((a, b) => `${b.month}|${b.site}|${b.zone}`.localeCompare(`${a.month}|${a.site}|${a.zone}`, "th", { numeric: true })).map((row) => `<article class="zone-score-record ${row.isNA ? "is-na" : ""}" data-zone-score-id="${escapeHtml(row.id)}"><div><b>${escapeHtml(row.site)} · ${escapeHtml(row.zone)}</b><span>${escapeHtml(formatAuditMonth(row.month))}${row.updatedAt ? ` · บันทึกล่าสุด ${escapeHtml(formatDate(row.updatedAt.slice(0, 10)))}` : ""}</span></div><strong>${row.isNA ? "N/A" : `${displayPercent(Number(row.score))}%`}</strong><small>${row.isNA ? "ไม่รวมคำนวณคะแนน Site" : "นำไปคำนวณ Dashboard"}</small><div><button type="button" class="admin-edit-button" data-admin-action="edit-zone-score">แก้ไข</button><button type="button" class="admin-delete-button" data-admin-action="delete-zone-score">ลบ</button></div></article>`).join("");
     const trendPreview = manualZoneSummary.trendData.map((point) => `<span>${escapeHtml(formatAuditMonthShort(point.month))}<b>${displayPercent(point.average)}%</b><small>${point.count} Zone</small></span>`).join("");
     const sitePreview = manualZoneSummary.siteData.map((point) => `<span>${escapeHtml(point.site)}<b>${displayPercent(point.average)}%</b><small>${point.count} Zone</small></span>`).join("");
-    els.adminView.innerHTML = `<div class="admin-heading"><div><span class="eyebrow">Administration</span><h2>ระบบหลังบ้าน</h2><p>จัดการ Checklist และข้อมูลแบบตรวจที่บันทึกบนอุปกรณ์นี้</p></div><button type="button" class="button secondary" data-admin-action="logout">ออกจากระบบ Admin</button></div>
-      <section class="admin-metrics"><article><span>หมวดตรวจ</span><strong>${adminSections.length}</strong></article><article><span>คำถามชุดนี้</span><strong>${adminItems.length}</strong></article><article><span>แบบตรวจ</span><strong>${audits.length}</strong></article><article><span>ข้อบกพร่อง</span><strong>${findingsTotal}</strong></article><article><span>พื้นที่จัดเก็บ</span><strong>${storageText}</strong></article></section>
+    els.adminView.innerHTML = `<div class="admin-heading"><div><span class="eyebrow">Administration</span><h2>ระบบหลังบ้าน</h2><p>จัดการ Checklist และข้อมูลแบบตรวจในฐานข้อมูลส่วนกลาง</p></div><button type="button" class="button secondary" data-admin-action="logout">ออกจากระบบ Admin</button></div>
+      <section class="admin-metrics"><article><span>หมวดตรวจ</span><strong>${adminSections.length}</strong></article><article><span>คำถามชุดนี้</span><strong>${adminItems.length}</strong></article><article><span>แบบตรวจ</span><strong>${audits.length}</strong></article><article><span>ข้อบกพร่อง</span><strong>${findingsTotal}</strong></article><article><span>ฐานข้อมูล</span><strong>${cloudReady ? "Supabase" : "Offline"}</strong></article><article><span>แคชบนเครื่อง</span><strong>${storageText}</strong></article></section>
       <section class="admin-master-card admin-dashboard-data-card"><div class="card-heading admin-dashboard-heading"><div><span class="eyebrow">Dashboard data</span><h3>ข้อมูลกราฟ Dashboard</h3><p>บันทึกคะแนนราย Zone แล้วระบบจะคำนวณ Score Trend และ Site Comparison ให้อัตโนมัติ</p></div><label class="dashboard-source-select"><span>แหล่งข้อมูลกราฟ</span><select data-dashboard-source><option value="automatic" ${dashboardManualData.source === "automatic" ? "selected" : ""}>อัตโนมัติจากแบบตรวจ</option><option value="manual" ${dashboardManualData.source === "manual" ? "selected" : ""}>คะแนนราย Zone ที่ Admin บันทึก</option></select></label></div><div class="admin-dashboard-note ${dashboardManualData.source === "manual" ? "manual" : "automatic"}">${dashboardManualData.source === "manual" ? `Dashboard ใช้ ${manualZoneSummary.validRows.length} Zone ที่มีคะแนน · มี N/A ${manualZoneSummary.naCount} Zone ซึ่งไม่นำมาคำนวณค่าเฉลี่ย Site` : "Dashboard จะคำนวณกราฟจากแบบตรวจและตัวกรองโดยอัตโนมัติ ข้อมูลคะแนนราย Zone ที่บันทึกไว้จะยังถูกเก็บรักษา"}</div><section class="zone-score-editor"><header><div><h4>${dashboardZoneScoreDraft.id ? "แก้ไขคะแนนราย Zone" : "เพิ่มคะแนนราย Zone"}</h4><small>พื้นที่ที่ไม่มีการตรวจให้เลือก N/A ระบบจะไม่นำคะแนนนั้นมาคำนวณรวม</small></div></header><datalist id="adminDashboardSites">${dashboardSites.map((site) => `<option value="${escapeHtml(site)}"></option>`).join("")}</datalist><datalist id="adminDashboardZones">${dashboardZones.map((zone) => `<option value="${escapeHtml(zone)}"></option>`).join("")}</datalist><div class="zone-score-form"><label><span>ประจำเดือน</span><input type="month" data-zone-score-draft="month" value="${escapeHtml(dashboardZoneScoreDraft.month)}" /></label><label><span>Site</span><input list="adminDashboardSites" data-zone-score-draft="site" value="${escapeHtml(dashboardZoneScoreDraft.site)}" placeholder="เลือกหรือพิมพ์ Site" /></label><label><span>Zone</span><input list="adminDashboardZones" data-zone-score-draft="zone" value="${escapeHtml(dashboardZoneScoreDraft.zone)}" placeholder="เลือกหรือพิมพ์ Zone" /></label><label><span>คะแนน (%)</span><input type="number" min="0" max="100" step="0.1" data-zone-score-draft="score" value="${escapeHtml(dashboardZoneScoreDraft.score)}" placeholder="0–100" ${dashboardZoneScoreDraft.isNA ? "disabled" : ""} /></label><label class="zone-score-na"><input type="checkbox" data-zone-score-na ${dashboardZoneScoreDraft.isNA ? "checked" : ""} /><span>ไม่มีการตรวจ (N/A)</span></label><div class="zone-score-form-actions"><button type="button" class="button primary" data-admin-action="save-zone-score">${dashboardZoneScoreDraft.id ? "บันทึกการแก้ไข" : "บันทึกคะแนน"}</button>${dashboardZoneScoreDraft.id ? `<button type="button" class="button secondary" data-admin-action="cancel-zone-score">ยกเลิก</button>` : ""}</div></div></section><div class="zone-score-list">${zoneScoreRows || `<div class="dashboard-empty compact">ยังไม่มีคะแนนราย Zone ที่บันทึก</div>`}</div><div class="admin-dashboard-data-grid"><section class="admin-chart-editor score-trend-editor"><header><div><h4>Score Trend</h4><small>คำนวณจากคะแนน Zone รายเดือน · ไม่นับ N/A</small></div></header><div class="admin-calculation-preview">${trendPreview || `<div class="dashboard-empty compact">ยังไม่มีข้อมูลสำหรับคำนวณ</div>`}</div></section><section class="admin-chart-editor finding-mix-editor"><header><div><h4>Finding Mix</h4><small>จำนวนข้อบกพร่องแยกตามระดับ</small></div><button type="button" data-admin-action="save-finding-mix">บันทึก</button></header><div class="admin-finding-inputs">${["major", "minor", "observe"].map((rating) => `<label class="${rating}"><span>${FINDING_RULES[rating].label}</span><input type="number" min="0" step="1" data-finding-mix="${rating}" value="${escapeHtml(dashboardManualData.findingMix[rating])}" placeholder="0" /></label>`).join("")}</div></section><section class="admin-chart-editor site-comparison-editor"><header><div><h4>Site Comparison</h4><small>ค่าเฉลี่ยคะแนน Zone ของแต่ละ Site · ไม่นับ N/A</small></div></header><div class="admin-calculation-preview site-preview">${sitePreview || `<div class="dashboard-empty compact">ยังไม่มีข้อมูลสำหรับคำนวณ</div>`}</div></section></div></section>
       <section class="admin-checklist-picker"><label class="field"><span>เลือกชุดคำถามที่ต้องการจัดการ</span><select data-admin-checklist-type>${Object.entries(checklistSets).map(([type, checklist]) => `<option value="${escapeHtml(type)}" ${adminChecklistType === type ? "selected" : ""}>${escapeHtml(checklist.label)} · ${itemsForType(type).length} ข้อ</option>`).join("")}</select></label></section>
       <section class="admin-toolbar"><div><h3>จัดการคำถาม · ${escapeHtml(auditTypeLabel(adminChecklistType))}</h3><p>แก้ข้อความ เพิ่ม หรือลบคำถามในชุดที่เลือกได้ทันที</p></div><div><button type="button" class="button secondary" data-admin-action="export">สำรองข้อมูลระบบ</button><button type="button" class="button secondary" data-admin-action="reset">คืนคำถามเริ่มต้น</button><button type="button" class="button primary" data-admin-action="add-section">+ เพิ่มหมวด</button></div></section>
       <section class="admin-master-card"><div class="card-heading"><div><span class="eyebrow">Master data</span><h3>ตัวเลือกข้อมูลการตรวจประเมิน</h3><p>รายการ Site จะแสดงเสมอ ส่วนแผนกและพื้นที่ชุดนี้ใช้สำหรับ Site อื่นที่ไม่ใช่โรงงานเทพารักษ์</p></div></div><div class="admin-master-grid">${Object.keys(MASTER_LABELS).map((key) => `<section data-master-key="${key}"><header><h4>${MASTER_LABELS[key]}</h4><button type="button" data-admin-action="add-master">+ เพิ่ม</button></header><div>${masterData[key].map((value, index) => `<label data-master-index="${index}"><input data-master-value value="${escapeHtml(value)}" aria-label="${MASTER_LABELS[key]} ${index + 1}" /><button type="button" class="admin-delete-button" data-admin-action="delete-master">ลบ</button></label>`).join("")}</div></section>`).join("")}</div></section>
       ${[...new Set([...masterData.sites, ...Object.keys(siteZoneLocations)])].map((site) => { const zones = siteZoneLocations[site] || {}; return `<section class="admin-master-card admin-zone-card" data-zone-site="${escapeHtml(site)}"><div class="card-heading"><div><span class="eyebrow">Site zones</span><h3>Zone Location · ${escapeHtml(site)}</h3><p>เพิ่ม Zone เลือกชุดคำถาม และแก้ไขรายการพื้นที่ตรวจของโรงงานนี้</p></div><button type="button" class="button primary" data-admin-action="add-zone">+ เพิ่ม Zone</button></div><div class="admin-master-grid">${Object.entries(zones).map(([zone, locations]) => `<section data-zone-key="${escapeHtml(zone)}"><header><h4>${escapeHtml(zone)}</h4><div class="admin-zone-actions"><button type="button" data-admin-action="add-zone-location">+ เพิ่มพื้นที่</button><button type="button" class="zone-delete-button" data-admin-action="delete-zone">ลบ Zone</button></div></header><label class="zone-checklist-field"><span>ชุดคำถามสำหรับ Zone นี้</span><select data-zone-checklist-type aria-label="ชุดคำถาม ${escapeHtml(site)} ${escapeHtml(zone)}">${Object.entries(checklistSets).map(([type, checklist]) => `<option value="${escapeHtml(type)}" ${siteZoneChecklistTypes[site]?.[zone] === type ? "selected" : ""}>${escapeHtml(checklist.label)}</option>`).join("")}</select></label><div>${locations.map((value, index) => `<label data-zone-index="${index}"><input data-zone-location-value value="${escapeHtml(value)}" aria-label="${escapeHtml(site)} ${escapeHtml(zone)} พื้นที่ ${index + 1}" /><button type="button" class="admin-delete-button" data-admin-action="delete-zone-location">ลบ</button></label>`).join("")}</div></section>`).join("") || `<div class="dashboard-empty compact admin-zone-empty">ยังไม่มี Zone ใน Site นี้</div>`}</div></section>`; }).join("")}
       <div class="admin-section-list">${adminSections.map((section, sectionIndex) => `<section class="admin-section" data-admin-section="${sectionIndex}"><header><label class="field"><span>ชื่อหมวด ${section.id}</span><input data-section-title value="${escapeHtml(section.title)}" /></label><div><b>${section.items.length} คำถาม</b><button type="button" class="admin-delete-button" data-admin-action="delete-section">ลบหมวด</button></div></header><div class="admin-question-list">${section.items.map((item, itemIndex) => `<article class="admin-question" data-admin-item="${itemIndex}"><span class="item-code">${escapeHtml(item.id)}</span><textarea data-question-text aria-label="คำถาม ${escapeHtml(item.id)}">${escapeHtml(item.text)}</textarea><button type="button" class="admin-delete-button" data-admin-action="delete-question">ลบ</button></article>`).join("")}</div><button type="button" class="admin-add-question" data-admin-action="add-question">+ เพิ่มคำถามในหมวดนี้</button></section>`).join("")}</div>
-      <section class="admin-data-card"><div class="card-heading"><div><span class="eyebrow">Audit data</span><h3>ข้อมูลแบบตรวจบนอุปกรณ์</h3></div></div><div class="admin-audit-list">${audits.length ? audits.map((entry) => { const stats = entryStats(entry); return `<article data-admin-audit="${escapeHtml(entry.id)}"><div><b>${escapeHtml(entry.meta?.area || "ยังไม่ระบุพื้นที่")}</b><span>${escapeHtml(auditTypeLabel(entry.meta?.auditType))} · ${escapeHtml(entry.meta?.site || "ยังไม่ระบุ Site")} · ${escapeHtml(entry.meta?.department || "—")} · ${escapeHtml(formatDate(entry.meta?.auditDate))}</span></div><div><strong>${stats.answered}/${stats.total}</strong><span>${entry.status === "complete" ? "เสร็จสิ้น" : "ฉบับร่าง"}</span></div><button type="button" class="admin-delete-button" data-admin-action="delete-audit">ลบข้อมูล</button></article>`; }).join("") : `<div class="dashboard-empty compact">ยังไม่มีข้อมูลแบบตรวจ</div>`}</div></section>`;
+      <section class="admin-data-card"><div class="card-heading"><div><span class="eyebrow">Audit data</span><h3>ข้อมูลแบบตรวจส่วนกลาง</h3></div></div><div class="admin-audit-list">${audits.length ? audits.map((entry) => { const stats = entryStats(entry); return `<article data-admin-audit="${escapeHtml(entry.id)}"><div><b>${escapeHtml(entry.meta?.area || "ยังไม่ระบุพื้นที่")}</b><span>${escapeHtml(auditTypeLabel(entry.meta?.auditType))} · ${escapeHtml(entry.meta?.site || "ยังไม่ระบุ Site")} · ${escapeHtml(entry.meta?.department || "—")} · ${escapeHtml(formatDate(entry.meta?.auditDate))}</span></div><div><strong>${stats.answered}/${stats.total}</strong><span>${entry.status === "complete" ? "เสร็จสิ้น" : "ฉบับร่าง"}</span></div><button type="button" class="admin-delete-button" data-admin-action="delete-audit">ลบข้อมูล</button></article>`; }).join("") : `<div class="dashboard-empty compact">ยังไม่มีข้อมูลแบบตรวจ</div>`}</div></section>`;
   }
 
   function invalidateSectionConfirmation(sectionId) {
@@ -883,7 +1091,7 @@
       <div class="welcome-card">
         <span class="eyebrow">KCG Corporation · Quality System</span>
         <h2>พร้อมสำหรับการตรวจรอบใหม่</h2>
-        <p>กรอกข้อมูลทั่วไปก่อนเริ่ม ระบบจะบันทึกคำตอบทุกข้อบนอุปกรณ์นี้โดยอัตโนมัติ</p>
+        <p>กรอกข้อมูลทั่วไปก่อนเริ่ม ระบบจะบันทึกคำตอบทุกข้อไปยังฐานข้อมูลส่วนกลางโดยอัตโนมัติ</p>
       </div>
       <div class="form-card">
         <h3>ข้อมูลการตรวจประเมิน</h3>
@@ -1133,6 +1341,28 @@
     return canvas.toDataURL("image/jpeg", 0.76);
   }
 
+  async function prepareAuditPhoto(file, category = "finding") {
+    const dataUrl = await compressImage(file);
+    if (!cloudReady) return dataUrl;
+    try {
+      const imageBlob = await (await fetch(dataUrl)).blob();
+      const path = `${cloudUserId}/${audit.id}/${category}-${Date.now()}-${uid()}.jpg`;
+      const { error } = await cloudClient.storage.from("audit-photos").upload(path, imageBlob, {
+        contentType: "image/jpeg",
+        cacheControl: "31536000",
+        upsert: false,
+      });
+      if (error) throw error;
+      const { data } = cloudClient.storage.from("audit-photos").getPublicUrl(path);
+      if (!data?.publicUrl) throw new Error("Photo public URL is unavailable");
+      return data.publicUrl;
+    } catch (error) {
+      console.error("Unable to upload audit photo", error);
+      updateCloudStatus("offline", "รูปเก็บออฟไลน์ · รอซิงก์");
+      return dataUrl;
+    }
+  }
+
   function safeFilename(extension) {
     const area = (audit.meta.area || "GHP-Audit").replace(/[\\/:*?"<>|]+/g, "-").trim();
     const type = auditTypeLabel(audit.meta.auditType).replace(/[\\/:*?"<>|]+/g, "-").trim();
@@ -1365,8 +1595,8 @@
       const recentAction = event.target.closest("[data-recent-action]")?.dataset.recentAction;
       if (recent && recentAction === "delete") {
         const areaName = recent.querySelector(".recent-audit-open b")?.textContent || "แบบตรวจนี้";
-        if (!confirm(`ลบ “${areaName}” ออกจากอุปกรณ์นี้หรือไม่? ข้อมูลและรูปแนบในแบบตรวจนี้จะถูกลบทั้งหมด`)) return;
-        await dbRequest("readwrite", (store) => store.delete(recent.dataset.auditId));
+        if (!confirm(`ลบ “${areaName}” ออกจากฐานข้อมูลส่วนกลางหรือไม่? ข้อมูลและรูปแนบในแบบตรวจนี้จะถูกลบทั้งหมด`)) return;
+        await deleteAuditRecord(recent.dataset.auditId);
         if (recent.dataset.auditId === audit.id) {
           const remaining = await listAudits();
           audit = remaining[0] || createAudit();
@@ -1377,14 +1607,14 @@
         return;
       }
       if (recent && recentAction === "edit") {
-        audit = normalizeAudit(await dbRequest("readonly", (store) => store.get(recent.dataset.auditId)));
+        audit = await getAuditRecord(recent.dataset.auditId);
         activateAuditChecklist();
         navigate("meta");
         showToast("เปิดแบบตรวจสำหรับแก้ไขแล้ว");
         return;
       }
       if (recent && recentAction === "open" && recent.dataset.auditId !== audit.id) {
-        audit = normalizeAudit(await dbRequest("readonly", (store) => store.get(recent.dataset.auditId)));
+        audit = await getAuditRecord(recent.dataset.auditId);
         activateAuditChecklist();
         navigate("dashboard");
         showToast("เปิดแบบตรวจแล้ว");
@@ -1454,6 +1684,7 @@
         const entryId = removeFindingEntryButton.closest("[data-finding-entry]")?.dataset.findingEntry;
         const entryIndex = entries.findIndex((entry) => entry.id === entryId);
         if (entryIndex < 0) return;
+        await deleteStoredPhotos(entries[entryIndex].photos);
         entries.splice(entryIndex, 1);
         syncFindingEntries(response);
         if (response.autoRatedFromDetail && !response.note.trim() && !response.photos.length) {
@@ -1487,6 +1718,7 @@
         const entryId = removeButton.closest("[data-finding-entry]")?.dataset.findingEntry;
         const entry = findingEntriesFor(response).find((candidate) => candidate.id === entryId);
         if (!entry) return;
+        await deleteStoredPhotos([entry.photos[Number(removeButton.dataset.photoRemove)]]);
         entry.photos.splice(Number(removeButton.dataset.photoRemove), 1);
         syncFindingEntries(response);
         if (response.autoRatedFromDetail && !response.note.trim() && !response.photos.length) {
@@ -1556,7 +1788,7 @@
       const files = [...event.target.files];
       try {
         showToast(`กำลังย่อและแนบรูป ${files.length} รูป...`);
-        const photos = await Promise.all(files.map(compressImage));
+        const photos = await Promise.all(files.map((file) => prepareAuditPhoto(file, "finding")));
         const response = responseFor(itemId);
         const entry = findingEntriesFor(response).find((candidate) => candidate.id === entryId);
         if (!entry) throw new Error("Finding entry not found");
@@ -1576,7 +1808,7 @@
         showToast("ไม่สามารถแนบรูปที่เลือกได้");
       }
     });
-    els.defectsView.addEventListener("click", (event) => {
+    els.defectsView.addEventListener("click", async (event) => {
       if (event.target.closest("[data-defect-action=\"audit\"]")) {
         navigate("meta");
         return;
@@ -1584,7 +1816,9 @@
       const card = event.target.closest("[data-defect-id]");
       const removeButton = event.target.closest("[data-closure-remove]");
       if (!card || !removeButton) return;
-      responseFor(card.dataset.defectId).closurePhotos.splice(Number(removeButton.dataset.closureRemove), 1);
+      const response = responseFor(card.dataset.defectId);
+      await deleteStoredPhotos([response.closurePhotos[Number(removeButton.dataset.closureRemove)]]);
+      response.closurePhotos.splice(Number(removeButton.dataset.closureRemove), 1);
       scheduleSave();
       renderDefects();
     });
@@ -1609,7 +1843,7 @@
       const files = [...event.target.files];
       try {
         showToast(`กำลังย่อและแนบรูปหลังแก้ไข ${files.length} รูป...`);
-        const photos = await Promise.all(files.map(compressImage));
+        const photos = await Promise.all(files.map((file) => prepareAuditPhoto(file, "closure")));
         responseFor(itemId).closurePhotos.push(...photos);
         scheduleSave();
         renderDefects();
@@ -1924,8 +2158,8 @@
       if (action === "delete-audit") {
         const auditElement = button.closest("[data-admin-audit]");
         const auditId = auditElement?.dataset.adminAudit;
-        if (!auditId || !confirm("ลบข้อมูลแบบตรวจนี้ออกจากอุปกรณ์หรือไม่?")) return;
-        await dbRequest("readwrite", (store) => store.delete(auditId));
+        if (!auditId || !confirm("ลบข้อมูลแบบตรวจนี้ออกจากฐานข้อมูลส่วนกลางหรือไม่?")) return;
+        await deleteAuditRecord(auditId);
         if (audit.id === auditId) {
           const remaining = await listAudits();
           audit = remaining[0] || createAudit();
@@ -1975,15 +2209,15 @@
       const item = event.target.closest("[data-history-id]");
       if (!item) return;
       if (event.target.closest("[data-history-open]")) {
-        audit = normalizeAudit(await dbRequest("readonly", (store) => store.get(item.dataset.historyId)));
+        audit = await getAuditRecord(item.dataset.historyId);
         activateAuditChecklist();
         els.historyDialog.close();
         navigate("dashboard");
         showToast("เปิดแบบตรวจแล้ว");
       }
       if (event.target.closest("[data-history-delete]")) {
-        if (!confirm("ลบแบบตรวจนี้ออกจากอุปกรณ์หรือไม่?")) return;
-        await dbRequest("readwrite", (store) => store.delete(item.dataset.historyId));
+        if (!confirm("ลบแบบตรวจนี้ออกจากฐานข้อมูลส่วนกลางหรือไม่?")) return;
+        await deleteAuditRecord(item.dataset.historyId);
         if (item.dataset.historyId === audit.id) {
           const remaining = await listAudits();
           audit = remaining[0] || createAudit();
@@ -2004,7 +2238,7 @@
 
   async function init() {
     Object.assign(els, {
-      homeButton: $("homeButton"), historyButton: $("historyButton"), themeToggle: $("themeToggle"), saveStatus: $("saveStatus"),
+      homeButton: $("homeButton"), historyButton: $("historyButton"), themeToggle: $("themeToggle"), saveStatus: $("saveStatus"), cloudStatus: $("cloudStatus"),
       progressText: $("progressText"), progressBar: $("progressBar"), progressHint: $("progressHint"),
       sectionNav: $("sectionNav"), scoringButton: $("scoringButton"), dashboardView: $("dashboardView"), metaView: $("metaView"), checklistView: $("checklistView"), defectsView: $("defectsView"), adminView: $("adminView"),
       sectionEyebrow: $("sectionEyebrow"), sectionTitle: $("sectionTitle"), sectionSubtitle: $("sectionSubtitle"), sectionScore: $("sectionScore"),
@@ -2017,6 +2251,7 @@
     applyTheme(savedTheme === "dark" || savedTheme === "light" ? savedTheme : (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
     try {
       db = await openDatabase();
+      await initCloudDatabase();
       await loadChecklistSettings();
       const audits = await listAudits();
       audit = audits[0] || createAudit();

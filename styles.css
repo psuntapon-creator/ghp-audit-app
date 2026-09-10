@@ -187,6 +187,30 @@ button { color: inherit; }
 .rail-actions { display: grid; gap: 8px; margin-top: 14px; }
 .rail-actions .button { width: 100%; }
 .privacy-note { text-align: center; font-size: 9px; line-height: 1.5; color: #869693; }
+
+.cloud-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border: 1px solid rgba(21, 125, 84, .2);
+  border-radius: 999px;
+  background: rgba(21, 125, 84, .08);
+  color: #157d54;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.cloud-status.connecting { color: #96721b; border-color: rgba(150, 114, 27, .22); background: rgba(150, 114, 27, .08); }
+.cloud-status.offline { color: #b4312c; border-color: rgba(180, 49, 44, .22); background: rgba(180, 49, 44, .08); }
+.cloud-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 15%, transparent); }
+[data-theme="dark"] .cloud-status { background: rgba(82, 197, 146, .12); color: #77d5aa; border-color: rgba(119, 213, 170, .24); }
+[data-theme="dark"] .cloud-status.connecting { color: #e8c563; background: rgba(232, 197, 99, .1); }
+[data-theme="dark"] .cloud-status.offline { color: #ff8b84; background: rgba(255, 139, 132, .1); }
+
+@media (max-width: 760px) {
+  .cloud-status { max-width: 122px; overflow: hidden; text-overflow: ellipsis; }
+}
 .mobile-footer { display: none; }
 
 .modal { width: min(520px, calc(100% - 28px)); border: 0; border-radius: 20px; padding: 0; color: var(--ink); box-shadow: 0 24px 70px rgba(10,40,35,.25); }
