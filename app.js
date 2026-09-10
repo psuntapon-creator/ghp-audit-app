@@ -59,6 +59,7 @@
   };
   const DEFAULT_DASHBOARD_MANUAL_DATA = {
     source: "automatic",
+    zoneScores: [],
     scoreTrend: [],
     findingMix: { major: "", minor: "", observe: "" },
     siteComparison: [],
@@ -101,6 +102,7 @@
   let searchTerm = "";
   let findingsOnly = false;
   let dashboardFilters = { month: "all", site: "all", zone: "all", area: "all", type: "all" };
+  let dashboardZoneScoreDraft = { id: "", month: "", site: "", zone: "", score: "", isNA: false };
   let defectEntryMode = false;
   let saveTimer;
   let checklistSaveTimer;
@@ -116,6 +118,15 @@
     };
     return {
       source: value?.source === "manual" ? "manual" : "automatic",
+      zoneScores: Array.isArray(value?.zoneScores) ? value.zoneScores.map((row) => ({
+        id: String(row?.id || uid()),
+        month: /^\d{4}-\d{2}$/.test(row?.month || "") ? row.month : "",
+        site: String(row?.site || ""),
+        zone: String(row?.zone || ""),
+        score: row?.isNA ? "" : normalizedNumber(row?.score, 100),
+        isNA: Boolean(row?.isNA),
+        updatedAt: String(row?.updatedAt || ""),
+      })) : [],
       scoreTrend: Array.isArray(value?.scoreTrend) ? value.scoreTrend.map((row) => ({
         month: /^\d{4}-\d{2}$/.test(row?.month || "") ? row.month : "",
         score: normalizedNumber(row?.score, 100),
@@ -132,6 +143,30 @@
         count: normalizedNumber(row?.count),
       })) : [],
     };
+  }
+
+  function aggregateManualZoneScores(rows = dashboardManualData.zoneScores) {
+    const validRows = rows.filter((row) => !row.isNA && row.month && row.site.trim() && row.zone.trim() && row.score !== "" && Number.isFinite(Number(row.score)))
+      .map((row) => ({ ...row, score: Math.min(100, Math.max(0, Number(row.score))) }));
+    const trendGroups = new Map();
+    const siteGroups = new Map();
+    validRows.forEach((row) => {
+      if (!trendGroups.has(row.month)) trendGroups.set(row.month, []);
+      trendGroups.get(row.month).push(row.score);
+      if (!siteGroups.has(row.site)) siteGroups.set(row.site, []);
+      siteGroups.get(row.site).push(row.score);
+    });
+    const trendData = [...trendGroups.entries()].sort(([a], [b]) => a.localeCompare(b)).slice(-6).map(([month, scores]) => ({
+      month,
+      count: scores.length,
+      average: scores.reduce((sum, score) => sum + score, 0) / scores.length,
+    }));
+    const siteData = [...siteGroups.entries()].map(([site, scores]) => ({
+      site,
+      count: scores.length,
+      average: scores.reduce((sum, score) => sum + score, 0) / scores.length,
+    })).sort((a, b) => b.average - a.average).slice(0, 6);
+    return { validRows, trendData, siteData, naCount: rows.filter((row) => row.isNA).length };
   }
 
   function rebuildItems() {
@@ -639,11 +674,9 @@
     })).sort((a, b) => (b.average ?? -1) - (a.average ?? -1)).slice(0, 6);
 
     const manualChartSource = dashboardManualData.source === "manual";
+    const manualZoneSummary = aggregateManualZoneScores();
     const chartTrendData = manualChartSource
-      ? dashboardManualData.scoreTrend
-        .filter((row) => row.month && row.score !== "" && Number.isFinite(Number(row.score)))
-        .map((row) => ({ month: row.month, average: Math.min(100, Math.max(0, Number(row.score))), count: Math.round(Math.max(0, Number(row.count) || 0)) }))
-        .sort((a, b) => a.month.localeCompare(b.month)).slice(-6)
+      ? manualZoneSummary.trendData
       : trendData;
     const chartRatingCounts = manualChartSource
       ? {
@@ -654,10 +687,7 @@
       : ratingCounts;
     const chartFindingTotal = chartRatingCounts.major + chartRatingCounts.minor + chartRatingCounts.observe;
     const chartSiteData = manualChartSource
-      ? dashboardManualData.siteComparison
-        .filter((row) => row.site.trim() && row.score !== "" && Number.isFinite(Number(row.score)))
-        .map((row) => ({ site: row.site.trim(), average: Math.min(100, Math.max(0, Number(row.score))), count: Math.round(Math.max(0, Number(row.count) || 0)) }))
-        .sort((a, b) => b.average - a.average).slice(0, 6)
+      ? manualZoneSummary.siteData
       : siteData;
     const majorEnd = chartFindingTotal ? (chartRatingCounts.major / chartFindingTotal) * 360 : 0;
     const minorEnd = chartFindingTotal ? majorEnd + (chartRatingCounts.minor / chartFindingTotal) * 360 : 0;
@@ -706,10 +736,10 @@
         <article class="metric-card status"><span>อัตราปิดข้อบกพร่อง</span><strong>${closureRate === null ? "—" : closureRate}<small>${closureRate === null ? "" : "%"}</small></strong><p>${totalFindings ? `ปิดแล้ว ${closedFindings} จาก ${totalFindings} ข้อ` : "ยังไม่มีข้อบกพร่อง"}</p></article>
       </section>
       <section class="dashboard-chart-grid" aria-label="กราฟวิเคราะห์ผลการตรวจ">
-        <div class="dashboard-chart-source ${manualChartSource ? "manual" : "automatic"}"><b>${manualChartSource ? "ข้อมูลที่ Admin กรอก" : "ข้อมูลอัตโนมัติจากแบบตรวจ"}</b><span>${manualChartSource ? "กราฟ 3 รายการใช้ข้อมูลที่ Admin กรอก · ตัวกรองด้านบนยังมีผลกับ KPI และรายการแบบตรวจ" : "กราฟคำนวณจากแบบตรวจตามตัวกรองด้านบน"}</span></div>
-        <article class="dashboard-card trend-chart-card"><div class="card-heading"><div><span class="eyebrow">Score trend</span><h3>แนวโน้มคะแนนเฉลี่ยรายเดือน</h3></div><small>ล่าสุดไม่เกิน 6 เดือน</small></div>${chartTrendData.length ? `<div class="trend-chart" role="img" aria-label="กราฟคะแนนเฉลี่ยรายเดือน">${chartTrendData.map((point) => `<div class="trend-column" title="${escapeHtml(formatAuditMonth(point.month))}: ${displayPercent(point.average)}${point.average === null ? "" : "%"} จาก ${point.count} แบบ"><span>${displayPercent(point.average)}${point.average === null ? "" : "%"}</span><div><i style="height:${Math.max(chartPercent(point.average), 4)}%"></i></div><small>${escapeHtml(formatAuditMonthShort(point.month))}</small><em>${point.count} แบบ</em></div>`).join("")}</div>` : `<div class="dashboard-empty compact">ยังไม่มีข้อมูลสำหรับแสดงแนวโน้ม</div>`}</article>
+        <div class="dashboard-chart-source ${manualChartSource ? "manual" : "automatic"}"><b>${manualChartSource ? "ข้อมูลคะแนนราย Zone ที่ Admin บันทึก" : "ข้อมูลอัตโนมัติจากแบบตรวจ"}</b><span>${manualChartSource ? `คำนวณจาก ${manualZoneSummary.validRows.length} Zone · N/A ${manualZoneSummary.naCount} Zone (ไม่รวมในค่าเฉลี่ย Site) · ตัวกรองด้านบนยังมีผลกับ KPI และรายการแบบตรวจ` : "กราฟคำนวณจากแบบตรวจตามตัวกรองด้านบน"}</span></div>
+        <article class="dashboard-card trend-chart-card"><div class="card-heading"><div><span class="eyebrow">Score trend</span><h3>แนวโน้มคะแนนเฉลี่ยรายเดือน</h3></div><small>ล่าสุดไม่เกิน 6 เดือน</small></div>${chartTrendData.length ? `<div class="trend-chart" role="img" aria-label="กราฟคะแนนเฉลี่ยรายเดือน">${chartTrendData.map((point) => `<div class="trend-column" title="${escapeHtml(formatAuditMonth(point.month))}: ${displayPercent(point.average)}${point.average === null ? "" : "%"} จาก ${point.count} ${manualChartSource ? "Zone" : "แบบ"}"><span>${displayPercent(point.average)}${point.average === null ? "" : "%"}</span><div><i style="height:${Math.max(chartPercent(point.average), 4)}%"></i></div><small>${escapeHtml(formatAuditMonthShort(point.month))}</small><em>${point.count} ${manualChartSource ? "Zone" : "แบบ"}</em></div>`).join("")}</div>` : `<div class="dashboard-empty compact">ยังไม่มีข้อมูลสำหรับแสดงแนวโน้ม</div>`}</article>
         <article class="dashboard-card finding-chart-card"><div class="card-heading"><div><span class="eyebrow">Finding mix</span><h3>สัดส่วนข้อบกพร่อง</h3></div></div><div class="finding-donut-wrap"><div class="finding-donut ${chartFindingTotal ? "" : "empty"}" style="${donutStyle}" role="img" aria-label="ข้อบกพร่องรวม ${chartFindingTotal} ข้อ"><span><b>${chartFindingTotal}</b><small>ข้อพบ</small></span></div><div class="chart-legend">${["major", "minor", "observe"].map((rating) => `<span><i class="dot ${rating}"></i>${FINDING_RULES[rating].label}<b>${chartRatingCounts[rating]}</b></span>`).join("")}</div></div></article>
-        <article class="dashboard-card site-chart-card"><div class="card-heading"><div><span class="eyebrow">Site comparison</span><h3>คะแนนเฉลี่ยแยกตาม Site</h3></div></div>${chartSiteData.length ? `<div class="site-bars">${chartSiteData.map((point) => `<div class="site-bar"><div><span>${escapeHtml(point.site)}</span><b>${displayPercent(point.average)}${point.average === null ? "" : "%"}</b></div><div class="site-bar-track"><i style="width:${chartPercent(point.average)}%"></i></div><small>${point.count} แบบตรวจ</small></div>`).join("")}</div>` : `<div class="dashboard-empty compact">ยังไม่มีข้อมูล Site สำหรับเปรียบเทียบ</div>`}</article>
+        <article class="dashboard-card site-chart-card"><div class="card-heading"><div><span class="eyebrow">Site comparison</span><h3>คะแนนเฉลี่ยแยกตาม Site</h3></div></div>${chartSiteData.length ? `<div class="site-bars">${chartSiteData.map((point) => `<div class="site-bar"><div><span>${escapeHtml(point.site)}</span><b>${displayPercent(point.average)}${point.average === null ? "" : "%"}</b></div><div class="site-bar-track"><i style="width:${chartPercent(point.average)}%"></i></div><small>${point.count} ${manualChartSource ? "Zone" : "แบบตรวจ"}</small></div>`).join("")}</div>` : `<div class="dashboard-empty compact">ยังไม่มีข้อมูล Site สำหรับเปรียบเทียบ</div>`}</article>
       </section>
       <section class="dashboard-row">
         <article class="dashboard-card severity-card"><div class="card-heading"><div><span class="eyebrow">Current audit</span><h3>ข้อบกพร่องของแบบตรวจที่เปิดอยู่</h3></div><button type="button" class="text-button" data-dashboard-action="defects">ดูและตอบกลับ</button></div><div class="severity-list">${["major", "minor", "observe"].map((rating) => `<button type="button" data-dashboard-action="defects" class="severity-item ${rating}"><span><i class="dot ${rating}"></i>${FINDING_RULES[rating].label}</span><strong>${currentStats.counts[rating]}</strong><small>${FINDING_RULES[rating].deadline}</small></button>`).join("")}</div>${currentFindings.length ? `<div class="closure-progress"><div><span>การปิดข้อบกพร่อง</span><b>${currentFindings.length - currentOpenFindings.length}/${currentFindings.length}</b></div><div class="metric-progress"><i style="width:${Math.round(((currentFindings.length - currentOpenFindings.length) / currentFindings.length) * 100)}%"></i></div></div>` : `<div class="dashboard-empty compact">ยังไม่พบ Major, Minor หรือ Observe</div>`}</article>
@@ -793,11 +823,16 @@
       if (estimate?.usage != null) storageText = `${(estimate.usage / 1024 / 1024).toFixed(1)} MB`;
     } catch (error) { console.error(error); }
     if (currentStep !== "admin") return;
-    const scoreTrendRows = dashboardManualData.scoreTrend.map((row, index) => `<div class="admin-chart-row score-trend-row" data-score-trend-index="${index}"><label><span>เดือน</span><input type="month" data-score-trend-field="month" value="${escapeHtml(row.month)}" aria-label="เดือน Score Trend รายการที่ ${index + 1}" /></label><label><span>คะแนนเฉลี่ย (%)</span><input type="number" min="0" max="100" step="0.1" data-score-trend-field="score" value="${escapeHtml(row.score)}" placeholder="0–100" aria-label="คะแนน Score Trend รายการที่ ${index + 1}" /></label><label><span>จำนวนแบบตรวจ</span><input type="number" min="0" step="1" data-score-trend-field="count" value="${escapeHtml(row.count)}" placeholder="0" aria-label="จำนวนแบบตรวจ Score Trend รายการที่ ${index + 1}" /></label><button type="button" class="admin-delete-button" data-admin-action="delete-score-trend">ลบ</button></div>`).join("");
-    const siteComparisonRows = dashboardManualData.siteComparison.map((row, index) => `<div class="admin-chart-row site-comparison-row" data-site-comparison-index="${index}"><label><span>Site</span><input list="adminDashboardSites" data-site-comparison-field="site" value="${escapeHtml(row.site)}" placeholder="เลือกหรือพิมพ์ Site" aria-label="Site Comparison รายการที่ ${index + 1}" /></label><label><span>คะแนนเฉลี่ย (%)</span><input type="number" min="0" max="100" step="0.1" data-site-comparison-field="score" value="${escapeHtml(row.score)}" placeholder="0–100" aria-label="คะแนน Site Comparison รายการที่ ${index + 1}" /></label><label><span>จำนวนแบบตรวจ</span><input type="number" min="0" step="1" data-site-comparison-field="count" value="${escapeHtml(row.count)}" placeholder="0" aria-label="จำนวนแบบตรวจ Site Comparison รายการที่ ${index + 1}" /></label><button type="button" class="admin-delete-button" data-admin-action="delete-site-comparison">ลบ</button></div>`).join("");
+    if (!dashboardZoneScoreDraft.month) dashboardZoneScoreDraft.month = today().slice(0, 7);
+    const dashboardSites = [...new Set([...masterData.sites, ...Object.keys(siteZoneLocations)])];
+    const dashboardZones = dashboardZoneScoreDraft.site ? Object.keys(siteZoneLocations[dashboardZoneScoreDraft.site] || {}) : [...new Set(Object.values(siteZoneLocations).flatMap((zones) => Object.keys(zones)))];
+    const manualZoneSummary = aggregateManualZoneScores();
+    const zoneScoreRows = [...dashboardManualData.zoneScores].sort((a, b) => `${b.month}|${b.site}|${b.zone}`.localeCompare(`${a.month}|${a.site}|${a.zone}`, "th", { numeric: true })).map((row) => `<article class="zone-score-record ${row.isNA ? "is-na" : ""}" data-zone-score-id="${escapeHtml(row.id)}"><div><b>${escapeHtml(row.site)} · ${escapeHtml(row.zone)}</b><span>${escapeHtml(formatAuditMonth(row.month))}${row.updatedAt ? ` · บันทึกล่าสุด ${escapeHtml(formatDate(row.updatedAt.slice(0, 10)))}` : ""}</span></div><strong>${row.isNA ? "N/A" : `${displayPercent(Number(row.score))}%`}</strong><small>${row.isNA ? "ไม่รวมคำนวณคะแนน Site" : "นำไปคำนวณ Dashboard"}</small><div><button type="button" class="admin-edit-button" data-admin-action="edit-zone-score">แก้ไข</button><button type="button" class="admin-delete-button" data-admin-action="delete-zone-score">ลบ</button></div></article>`).join("");
+    const trendPreview = manualZoneSummary.trendData.map((point) => `<span>${escapeHtml(formatAuditMonthShort(point.month))}<b>${displayPercent(point.average)}%</b><small>${point.count} Zone</small></span>`).join("");
+    const sitePreview = manualZoneSummary.siteData.map((point) => `<span>${escapeHtml(point.site)}<b>${displayPercent(point.average)}%</b><small>${point.count} Zone</small></span>`).join("");
     els.adminView.innerHTML = `<div class="admin-heading"><div><span class="eyebrow">Administration</span><h2>ระบบหลังบ้าน</h2><p>จัดการ Checklist และข้อมูลแบบตรวจที่บันทึกบนอุปกรณ์นี้</p></div><button type="button" class="button secondary" data-admin-action="logout">ออกจากระบบ Admin</button></div>
       <section class="admin-metrics"><article><span>หมวดตรวจ</span><strong>${adminSections.length}</strong></article><article><span>คำถามชุดนี้</span><strong>${adminItems.length}</strong></article><article><span>แบบตรวจ</span><strong>${audits.length}</strong></article><article><span>ข้อบกพร่อง</span><strong>${findingsTotal}</strong></article><article><span>พื้นที่จัดเก็บ</span><strong>${storageText}</strong></article></section>
-      <section class="admin-master-card admin-dashboard-data-card"><div class="card-heading admin-dashboard-heading"><div><span class="eyebrow">Dashboard data</span><h3>ข้อมูลกราฟ Dashboard</h3><p>เลือกให้กราฟคำนวณจากแบบตรวจอัตโนมัติ หรือใช้ค่าที่ Admin กรอกด้านล่าง</p></div><label class="dashboard-source-select"><span>แหล่งข้อมูลกราฟ</span><select data-dashboard-source><option value="automatic" ${dashboardManualData.source === "automatic" ? "selected" : ""}>อัตโนมัติจากแบบตรวจ</option><option value="manual" ${dashboardManualData.source === "manual" ? "selected" : ""}>ข้อมูลที่ Admin กรอก</option></select></label></div><div class="admin-dashboard-note ${dashboardManualData.source === "manual" ? "manual" : "automatic"}">${dashboardManualData.source === "manual" ? "Dashboard จะแสดงค่าที่กรอกในส่วนนี้สำหรับกราฟทั้ง 3 รายการ" : "Dashboard จะคำนวณกราฟจากแบบตรวจและตัวกรองโดยอัตโนมัติ ข้อมูลที่กรอกไว้จะยังถูกเก็บรักษา"}</div><div class="admin-dashboard-data-grid"><section class="admin-chart-editor score-trend-editor"><header><div><h4>Score Trend</h4><small>คะแนนเฉลี่ยรายเดือน · Dashboard แสดงล่าสุดไม่เกิน 6 เดือน</small></div><button type="button" data-admin-action="add-score-trend">+ เพิ่มเดือน</button></header><div class="admin-chart-rows">${scoreTrendRows || `<div class="dashboard-empty compact">ยังไม่มีข้อมูล Score Trend ที่กรอกเอง</div>`}</div></section><section class="admin-chart-editor finding-mix-editor"><header><div><h4>Finding Mix</h4><small>จำนวนข้อบกพร่องแยกตามระดับ</small></div></header><div class="admin-finding-inputs">${["major", "minor", "observe"].map((rating) => `<label class="${rating}"><span>${FINDING_RULES[rating].label}</span><input type="number" min="0" step="1" data-finding-mix="${rating}" value="${escapeHtml(dashboardManualData.findingMix[rating])}" placeholder="0" /></label>`).join("")}</div></section><section class="admin-chart-editor site-comparison-editor"><header><div><h4>Site Comparison</h4><small>คะแนนเฉลี่ยและจำนวนแบบตรวจของแต่ละ Site</small></div><button type="button" data-admin-action="add-site-comparison">+ เพิ่ม Site</button></header><datalist id="adminDashboardSites">${masterData.sites.map((site) => `<option value="${escapeHtml(site)}"></option>`).join("")}</datalist><div class="admin-chart-rows">${siteComparisonRows || `<div class="dashboard-empty compact">ยังไม่มีข้อมูล Site Comparison ที่กรอกเอง</div>`}</div></section></div></section>
+      <section class="admin-master-card admin-dashboard-data-card"><div class="card-heading admin-dashboard-heading"><div><span class="eyebrow">Dashboard data</span><h3>ข้อมูลกราฟ Dashboard</h3><p>บันทึกคะแนนราย Zone แล้วระบบจะคำนวณ Score Trend และ Site Comparison ให้อัตโนมัติ</p></div><label class="dashboard-source-select"><span>แหล่งข้อมูลกราฟ</span><select data-dashboard-source><option value="automatic" ${dashboardManualData.source === "automatic" ? "selected" : ""}>อัตโนมัติจากแบบตรวจ</option><option value="manual" ${dashboardManualData.source === "manual" ? "selected" : ""}>คะแนนราย Zone ที่ Admin บันทึก</option></select></label></div><div class="admin-dashboard-note ${dashboardManualData.source === "manual" ? "manual" : "automatic"}">${dashboardManualData.source === "manual" ? `Dashboard ใช้ ${manualZoneSummary.validRows.length} Zone ที่มีคะแนน · มี N/A ${manualZoneSummary.naCount} Zone ซึ่งไม่นำมาคำนวณค่าเฉลี่ย Site` : "Dashboard จะคำนวณกราฟจากแบบตรวจและตัวกรองโดยอัตโนมัติ ข้อมูลคะแนนราย Zone ที่บันทึกไว้จะยังถูกเก็บรักษา"}</div><section class="zone-score-editor"><header><div><h4>${dashboardZoneScoreDraft.id ? "แก้ไขคะแนนราย Zone" : "เพิ่มคะแนนราย Zone"}</h4><small>พื้นที่ที่ไม่มีการตรวจให้เลือก N/A ระบบจะไม่นำคะแนนนั้นมาคำนวณรวม</small></div></header><datalist id="adminDashboardSites">${dashboardSites.map((site) => `<option value="${escapeHtml(site)}"></option>`).join("")}</datalist><datalist id="adminDashboardZones">${dashboardZones.map((zone) => `<option value="${escapeHtml(zone)}"></option>`).join("")}</datalist><div class="zone-score-form"><label><span>ประจำเดือน</span><input type="month" data-zone-score-draft="month" value="${escapeHtml(dashboardZoneScoreDraft.month)}" /></label><label><span>Site</span><input list="adminDashboardSites" data-zone-score-draft="site" value="${escapeHtml(dashboardZoneScoreDraft.site)}" placeholder="เลือกหรือพิมพ์ Site" /></label><label><span>Zone</span><input list="adminDashboardZones" data-zone-score-draft="zone" value="${escapeHtml(dashboardZoneScoreDraft.zone)}" placeholder="เลือกหรือพิมพ์ Zone" /></label><label><span>คะแนน (%)</span><input type="number" min="0" max="100" step="0.1" data-zone-score-draft="score" value="${escapeHtml(dashboardZoneScoreDraft.score)}" placeholder="0–100" ${dashboardZoneScoreDraft.isNA ? "disabled" : ""} /></label><label class="zone-score-na"><input type="checkbox" data-zone-score-na ${dashboardZoneScoreDraft.isNA ? "checked" : ""} /><span>ไม่มีการตรวจ (N/A)</span></label><div class="zone-score-form-actions"><button type="button" class="button primary" data-admin-action="save-zone-score">${dashboardZoneScoreDraft.id ? "บันทึกการแก้ไข" : "บันทึกคะแนน"}</button>${dashboardZoneScoreDraft.id ? `<button type="button" class="button secondary" data-admin-action="cancel-zone-score">ยกเลิก</button>` : ""}</div></div></section><div class="zone-score-list">${zoneScoreRows || `<div class="dashboard-empty compact">ยังไม่มีคะแนนราย Zone ที่บันทึก</div>`}</div><div class="admin-dashboard-data-grid"><section class="admin-chart-editor score-trend-editor"><header><div><h4>Score Trend</h4><small>คำนวณจากคะแนน Zone รายเดือน · ไม่นับ N/A</small></div></header><div class="admin-calculation-preview">${trendPreview || `<div class="dashboard-empty compact">ยังไม่มีข้อมูลสำหรับคำนวณ</div>`}</div></section><section class="admin-chart-editor finding-mix-editor"><header><div><h4>Finding Mix</h4><small>จำนวนข้อบกพร่องแยกตามระดับ</small></div><button type="button" data-admin-action="save-finding-mix">บันทึก</button></header><div class="admin-finding-inputs">${["major", "minor", "observe"].map((rating) => `<label class="${rating}"><span>${FINDING_RULES[rating].label}</span><input type="number" min="0" step="1" data-finding-mix="${rating}" value="${escapeHtml(dashboardManualData.findingMix[rating])}" placeholder="0" /></label>`).join("")}</div></section><section class="admin-chart-editor site-comparison-editor"><header><div><h4>Site Comparison</h4><small>ค่าเฉลี่ยคะแนน Zone ของแต่ละ Site · ไม่นับ N/A</small></div></header><div class="admin-calculation-preview site-preview">${sitePreview || `<div class="dashboard-empty compact">ยังไม่มีข้อมูลสำหรับคำนวณ</div>`}</div></section></div></section>
       <section class="admin-checklist-picker"><label class="field"><span>เลือกชุดคำถามที่ต้องการจัดการ</span><select data-admin-checklist-type>${Object.entries(checklistSets).map(([type, checklist]) => `<option value="${escapeHtml(type)}" ${adminChecklistType === type ? "selected" : ""}>${escapeHtml(checklist.label)} · ${itemsForType(type).length} ข้อ</option>`).join("")}</select></label></section>
       <section class="admin-toolbar"><div><h3>จัดการคำถาม · ${escapeHtml(auditTypeLabel(adminChecklistType))}</h3><p>แก้ข้อความ เพิ่ม หรือลบคำถามในชุดที่เลือกได้ทันที</p></div><div><button type="button" class="button secondary" data-admin-action="export">สำรองข้อมูลระบบ</button><button type="button" class="button secondary" data-admin-action="reset">คืนคำถามเริ่มต้น</button><button type="button" class="button primary" data-admin-action="add-section">+ เพิ่มหมวด</button></div></section>
       <section class="admin-master-card"><div class="card-heading"><div><span class="eyebrow">Master data</span><h3>ตัวเลือกข้อมูลการตรวจประเมิน</h3><p>รายการ Site จะแสดงเสมอ ส่วนแผนกและพื้นที่ชุดนี้ใช้สำหรับ Site อื่นที่ไม่ใช่โรงงานเทพารักษ์</p></div></div><div class="admin-master-grid">${Object.keys(MASTER_LABELS).map((key) => `<section data-master-key="${key}"><header><h4>${MASTER_LABELS[key]}</h4><button type="button" data-admin-action="add-master">+ เพิ่ม</button></header><div>${masterData[key].map((value, index) => `<label data-master-index="${index}"><input data-master-value value="${escapeHtml(value)}" aria-label="${MASTER_LABELS[key]} ${index + 1}" /><button type="button" class="admin-delete-button" data-admin-action="delete-master">ลบ</button></label>`).join("")}</div></section>`).join("")}</div></section>
@@ -1589,6 +1624,12 @@
         showToast(dashboardManualData.source === "manual" ? "Dashboard จะใช้ข้อมูลที่ Admin กรอก" : "Dashboard จะคำนวณจากแบบตรวจอัตโนมัติ");
         return;
       }
+      if (event.target.matches("[data-zone-score-na]")) {
+        dashboardZoneScoreDraft.isNA = event.target.checked;
+        if (event.target.checked) dashboardZoneScoreDraft.score = "";
+        renderAdmin();
+        return;
+      }
       if (event.target.matches("[data-zone-checklist-type]")) {
         const site = event.target.closest("[data-zone-site]")?.dataset.zoneSite;
         const zone = event.target.closest("[data-zone-key]")?.dataset.zoneKey;
@@ -1601,25 +1642,14 @@
     });
     els.adminView.addEventListener("input", (event) => {
       if (!isAdmin) return;
-      const scoreTrendElement = event.target.closest("[data-score-trend-index]");
-      if (scoreTrendElement && event.target.matches("[data-score-trend-field]")) {
-        const index = Number(scoreTrendElement.dataset.scoreTrendIndex);
-        const field = event.target.dataset.scoreTrendField;
-        if (dashboardManualData.scoreTrend[index] && ["month", "score", "count"].includes(field)) dashboardManualData.scoreTrend[index][field] = event.target.value;
-        scheduleChecklistSave();
+      if (event.target.matches("[data-zone-score-draft]")) {
+        const field = event.target.dataset.zoneScoreDraft;
+        if (["month", "site", "zone", "score"].includes(field)) dashboardZoneScoreDraft[field] = event.target.value;
         return;
       }
       if (event.target.matches("[data-finding-mix]")) {
         const rating = event.target.dataset.findingMix;
         if (["major", "minor", "observe"].includes(rating)) dashboardManualData.findingMix[rating] = event.target.value;
-        scheduleChecklistSave();
-        return;
-      }
-      const siteComparisonElement = event.target.closest("[data-site-comparison-index]");
-      if (siteComparisonElement && event.target.matches("[data-site-comparison-field]")) {
-        const index = Number(siteComparisonElement.dataset.siteComparisonIndex);
-        const field = event.target.dataset.siteComparisonField;
-        if (dashboardManualData.siteComparison[index] && ["site", "score", "count"].includes(field)) dashboardManualData.siteComparison[index][field] = event.target.value;
         scheduleChecklistSave();
         return;
       }
@@ -1667,7 +1697,7 @@
       }
       if (action === "export") {
         const audits = await listAudits();
-        const payload = { schemaVersion: 7, exportedAt: new Date().toISOString(), checklists: checklistSets, masterData, siteZoneLocations, siteZoneChecklistTypes, dashboardManualData, audits };
+        const payload = { schemaVersion: 8, exportedAt: new Date().toISOString(), checklists: checklistSets, masterData, siteZoneLocations, siteZoneChecklistTypes, dashboardManualData, audits };
         downloadBlob(JSON.stringify(payload, null, 2), `KCG-GHP-System-Backup-${today()}.json`, "application/json;charset=utf-8");
         showToast("ดาวน์โหลดข้อมูลระบบแล้ว");
         return;
@@ -1679,44 +1709,81 @@
         siteZoneLocations = JSON.parse(JSON.stringify(DEFAULT_SITE_ZONE_LOCATIONS));
         siteZoneChecklistTypes = JSON.parse(JSON.stringify(DEFAULT_SITE_ZONE_CHECKLIST_TYPES));
         dashboardManualData = JSON.parse(JSON.stringify(DEFAULT_DASHBOARD_MANUAL_DATA));
+        dashboardZoneScoreDraft = { id: "", month: today().slice(0, 7), site: "", zone: "", score: "", isNA: false };
         activateAuditChecklist();
         await saveChecklistSettings();
         updateAll({ checklist: false });
         showToast("คืนคำถามเริ่มต้นแล้ว");
         return;
       }
-      if (action === "add-score-trend") {
-        dashboardManualData.scoreTrend.push({ month: today().slice(0, 7), score: "", count: "" });
+      if (action === "save-zone-score") {
+        const month = dashboardZoneScoreDraft.month.trim();
+        const site = dashboardZoneScoreDraft.site.trim();
+        const zone = dashboardZoneScoreDraft.zone.trim();
+        const numericScore = Number(dashboardZoneScoreDraft.score);
+        if (!/^\d{4}-\d{2}$/.test(month) || !site || !zone) {
+          showToast("กรุณาระบุเดือน Site และ Zone ให้ครบ");
+          return;
+        }
+        if (!dashboardZoneScoreDraft.isNA && (dashboardZoneScoreDraft.score === "" || !Number.isFinite(numericScore) || numericScore < 0 || numericScore > 100)) {
+          showToast("กรุณาระบุคะแนนระหว่าง 0–100 หรือเลือก N/A");
+          return;
+        }
+        const savedRow = {
+          id: dashboardZoneScoreDraft.id || uid(),
+          month,
+          site,
+          zone,
+          score: dashboardZoneScoreDraft.isNA ? "" : String(numericScore),
+          isNA: dashboardZoneScoreDraft.isNA,
+          updatedAt: new Date().toISOString(),
+        };
+        let existingIndex = dashboardManualData.zoneScores.findIndex((row) => row.id === savedRow.id);
+        if (existingIndex < 0) existingIndex = dashboardManualData.zoneScores.findIndex((row) => row.month === month && row.site.trim() === site && row.zone.trim() === zone);
+        if (existingIndex >= 0) savedRow.id = dashboardManualData.zoneScores[existingIndex].id;
+        if (existingIndex >= 0) dashboardManualData.zoneScores[existingIndex] = savedRow;
+        else dashboardManualData.zoneScores.push(savedRow);
+        dashboardManualData.source = "manual";
+        dashboardZoneScoreDraft = { id: "", month, site, zone: "", score: "", isNA: false };
         await saveChecklistSettings();
         updateAll({ checklist: false });
-        showToast("เพิ่มเดือนใน Score Trend แล้ว");
+        showToast(existingIndex >= 0 ? "บันทึกการแก้ไขคะแนนแล้ว · Dashboard อัปเดตแล้ว" : "บันทึกคะแนนแล้ว · Dashboard อัปเดตแล้ว");
         return;
       }
-      if (action === "delete-score-trend") {
-        const index = Number(button.closest("[data-score-trend-index]")?.dataset.scoreTrendIndex);
-        const row = dashboardManualData.scoreTrend[index];
-        if (!row || !confirm(`ลบข้อมูล Score Trend ${row.month ? formatAuditMonth(row.month) : "รายการนี้"} หรือไม่?`)) return;
-        dashboardManualData.scoreTrend.splice(index, 1);
-        await saveChecklistSettings();
-        updateAll({ checklist: false });
-        showToast("ลบข้อมูล Score Trend แล้ว");
+      if (action === "edit-zone-score") {
+        const id = button.closest("[data-zone-score-id]")?.dataset.zoneScoreId;
+        const row = dashboardManualData.zoneScores.find((entry) => entry.id === id);
+        if (!row) return;
+        dashboardZoneScoreDraft = { id: row.id, month: row.month, site: row.site, zone: row.zone, score: row.score, isNA: row.isNA };
+        renderAdmin();
+        els.adminView.querySelector(".zone-score-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        showToast(`กำลังแก้ไข ${row.site} · ${row.zone}`);
         return;
       }
-      if (action === "add-site-comparison") {
-        dashboardManualData.siteComparison.push({ site: "", score: "", count: "" });
-        await saveChecklistSettings();
-        updateAll({ checklist: false });
-        showToast("เพิ่ม Site Comparison แล้ว");
+      if (action === "cancel-zone-score") {
+        dashboardZoneScoreDraft = { id: "", month: today().slice(0, 7), site: "", zone: "", score: "", isNA: false };
+        renderAdmin();
+        showToast("ยกเลิกการแก้ไขแล้ว");
         return;
       }
-      if (action === "delete-site-comparison") {
-        const index = Number(button.closest("[data-site-comparison-index]")?.dataset.siteComparisonIndex);
-        const row = dashboardManualData.siteComparison[index];
-        if (!row || !confirm(`ลบข้อมูล Site Comparison ${row.site || "รายการนี้"} หรือไม่?`)) return;
-        dashboardManualData.siteComparison.splice(index, 1);
+      if (action === "delete-zone-score") {
+        const id = button.closest("[data-zone-score-id]")?.dataset.zoneScoreId;
+        const index = dashboardManualData.zoneScores.findIndex((row) => row.id === id);
+        const row = dashboardManualData.zoneScores[index];
+        if (!row || !confirm(`ลบคะแนน ${row.site} · ${row.zone} · ${formatAuditMonth(row.month)} หรือไม่?`)) return;
+        dashboardManualData.zoneScores.splice(index, 1);
+        if (dashboardZoneScoreDraft.id === id) dashboardZoneScoreDraft = { id: "", month: today().slice(0, 7), site: "", zone: "", score: "", isNA: false };
         await saveChecklistSettings();
         updateAll({ checklist: false });
-        showToast("ลบข้อมูล Site Comparison แล้ว");
+        showToast("ลบคะแนนแล้ว · Dashboard อัปเดตแล้ว");
+        return;
+      }
+      if (action === "save-finding-mix") {
+        dashboardManualData.findingMix = normalizeDashboardManualData({ findingMix: dashboardManualData.findingMix }).findingMix;
+        dashboardManualData.source = "manual";
+        await saveChecklistSettings();
+        updateAll({ checklist: false });
+        showToast("บันทึก Finding Mix แล้ว · Dashboard อัปเดตแล้ว");
         return;
       }
       if (action === "add-section") {
