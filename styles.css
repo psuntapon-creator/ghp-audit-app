@@ -408,6 +408,31 @@ button { color: inherit; }
 .admin-master-grid label { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
 .admin-master-grid input { min-width: 0; width: 100%; border: 1px solid #d9d8d4; border-radius: 10px; padding: 8px 9px; background: white; color: var(--ink); font-size: 9px; outline: 0; }
 .admin-master-grid input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(219,36,28,.08); }
+.admin-dashboard-heading { align-items: flex-end; gap: 18px; }
+.dashboard-source-select { min-width: 235px; display: grid; gap: 6px; }
+.dashboard-source-select span { color: var(--muted); font-size: 8px; font-weight: 700; }
+.dashboard-source-select select { width: 100%; min-height: 42px; border: 1px solid var(--line); border-radius: 12px; padding: 9px 31px 9px 11px; color: var(--ink); background: var(--surface); font-size: 10px; outline: 0; }
+.dashboard-source-select select:focus { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(219,36,28,.09); }
+.admin-dashboard-note { margin: 14px 0; padding: 10px 13px; border: 1px solid #bfe6dc; border-radius: 13px; color: #07574d; background: #edf9f6; font-size: 9px; font-weight: 700; }
+.admin-dashboard-note.manual { border-color: #efd787; color: #725800; background: #fff9df; }
+.admin-dashboard-data-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(260px, .6fr); gap: 12px; }
+.admin-chart-editor { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 17px; background: #fafaf8; }
+.admin-chart-editor > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.admin-chart-editor h4 { margin: 0; font-size: 12px; }
+.admin-chart-editor small { display: block; margin-top: 3px; color: var(--muted); font-size: 8px; }
+.admin-chart-editor > header button { border: 0; border-radius: 999px; padding: 7px 10px; color: var(--primary); background: var(--primary-soft); font-size: 8px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.site-comparison-editor { grid-column: 1 / -1; }
+.admin-chart-rows { display: grid; gap: 8px; }
+.admin-chart-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; align-items: end; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); }
+.admin-chart-row label, .admin-finding-inputs label { min-width: 0; display: grid; gap: 5px; }
+.admin-chart-row label > span, .admin-finding-inputs label > span { color: var(--muted); font-size: 8px; font-weight: 700; }
+.admin-chart-row input, .admin-finding-inputs input { width: 100%; min-width: 0; min-height: 38px; border: 1px solid #d9d8d4; border-radius: 10px; padding: 8px 9px; color: var(--ink); background: var(--surface); font-size: 9px; outline: 0; }
+.admin-chart-row input:focus, .admin-finding-inputs input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(219,36,28,.08); }
+.admin-finding-inputs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.admin-finding-inputs label { padding: 10px; border-top: 3px solid var(--line); border-radius: 12px; background: var(--surface); }
+.admin-finding-inputs label.major { border-color: var(--major); }
+.admin-finding-inputs label.minor { border-color: var(--minor); }
+.admin-finding-inputs label.observe { border-color: var(--observe); }
 .admin-section-list { display: grid; gap: 13px; }
 .admin-section { overflow: hidden; border-radius: 21px; background: white; box-shadow: 0 10px 28px rgba(42,43,46,.06); }
 .admin-section > header { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 15px; padding: 17px 19px; border-bottom: 1px solid var(--line); background: #fafaf8; }
@@ -858,6 +883,9 @@ button { color: inherit; }
 .dashboard-filter-grid select { width: 100%; min-width: 0; min-height: 42px; border: 1px solid var(--line); border-radius: 12px; padding: 9px 31px 9px 11px; color: var(--ink); background: var(--surface); outline: 0; font-size: 10px; }
 .dashboard-filter-grid select:focus { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(219,36,28,.09); }
 .dashboard-chart-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(250px, .65fr); gap: 15px; margin-bottom: 15px; }
+.dashboard-chart-source { grid-column: 1 / -1; display: flex; align-items: center; gap: 9px; padding: 9px 13px; border: 1px solid #bfe6dc; border-radius: 13px; color: #07574d; background: #edf9f6; font-size: 8px; }
+.dashboard-chart-source b { font-size: 9px; }
+.dashboard-chart-source.manual { border-color: #efd787; color: #725800; background: #fff9df; }
 .dashboard-chart-grid .card-heading { margin-bottom: 14px; }
 .dashboard-chart-grid .card-heading > small { color: var(--muted); font-size: 8px; }
 .site-chart-card { grid-column: 1 / -1; }
@@ -890,6 +918,8 @@ button { color: inherit; }
 
 @media screen and (max-width: 1120px) {
   .dashboard-filter-grid { grid-template-columns: 1fr 1fr; }
+  .admin-dashboard-data-grid { grid-template-columns: 1fr; }
+  .site-comparison-editor { grid-column: auto; }
 }
 
 @media screen and (max-width: 760px) {
@@ -898,6 +928,12 @@ button { color: inherit; }
   .dashboard-filter-heading > div:last-child { width: 100%; justify-content: space-between; }
   .dashboard-filter-grid { grid-template-columns: 1fr; }
   .dashboard-chart-grid { grid-template-columns: 1fr; }
+  .admin-dashboard-heading { align-items: stretch; flex-direction: column; }
+  .dashboard-source-select { min-width: 0; }
+  .admin-chart-row { grid-template-columns: 1fr; }
+  .admin-chart-row .admin-delete-button { justify-self: start; }
+  .admin-finding-inputs { grid-template-columns: 1fr; }
+  .dashboard-chart-source { align-items: flex-start; flex-direction: column; }
   .site-chart-card { grid-column: auto; }
   .trend-chart { justify-content: flex-start; overflow-x: auto; padding-bottom: 7px; }
   .trend-column { min-width: 60px; }
@@ -925,8 +961,10 @@ button { color: inherit; }
   html[data-theme="dark"] .sidebar,
   html[data-theme="dark"] .score-rail { background: rgba(27,29,33,.86); }
   html[data-theme="dark"] :is(.form-card,.check-item,.dashboard-card,.dashboard-filter-card,.metric-card,.score-card,.admin-login-card,.admin-master-card,.admin-section,.admin-data-card,.admin-checklist-picker,.history-item,.modal) { color: var(--ink); background: var(--surface); }
-  html[data-theme="dark"] :is(.field input,.field textarea,.field select,.dashboard-filter-grid select,.zone-checklist-field select,.admin-master-grid input,.admin-question textarea,.search-box,.icon-button,.button.secondary) { color: var(--ink); background: #292c31; border-color: var(--line); }
-  html[data-theme="dark"] :is(.checklist-section-block > header,.finding-panel,.defect-card-head,.admin-section > header,.admin-master-grid > section,.recent-audit,.severity-item,.dashboard-empty,.export-option,.profile-option) { color: var(--ink); background: #1d2024; border-color: var(--line); }
+  html[data-theme="dark"] :is(.field input,.field textarea,.field select,.dashboard-filter-grid select,.dashboard-source-select select,.zone-checklist-field select,.admin-master-grid input,.admin-chart-row input,.admin-finding-inputs input,.admin-question textarea,.search-box,.icon-button,.button.secondary) { color: var(--ink); background: #292c31; border-color: var(--line); }
+  html[data-theme="dark"] :is(.checklist-section-block > header,.finding-panel,.defect-card-head,.admin-section > header,.admin-master-grid > section,.admin-chart-editor,.admin-chart-row,.admin-finding-inputs label,.recent-audit,.severity-item,.dashboard-empty,.export-option,.profile-option) { color: var(--ink); background: #1d2024; border-color: var(--line); }
+  html[data-theme="dark"] :is(.admin-dashboard-note,.dashboard-chart-source) { color: #8ce2d2; background: #193631; border-color: #376b62; }
+  html[data-theme="dark"] :is(.admin-dashboard-note.manual,.dashboard-chart-source.manual) { color: #f6d76c; background: #3b341a; border-color: #756525; }
   html[data-theme="dark"] :is(.nav-item:hover,.rating-button,.admin-add-question) { color: var(--ink); background: #292c31; }
   html[data-theme="dark"] .nav-item.active { color: #ffb2ad; background: #3b2425; }
   html[data-theme="dark"] .nav-number { color: var(--muted); background: #32353a; }
