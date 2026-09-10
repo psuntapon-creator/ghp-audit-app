@@ -1148,7 +1148,7 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   function csvCell(value) { return `"${String(value ?? "").replace(/"/g, '""')}"`; }
-  function exportCsv() {
+  function auditExportRows() {
     const rows = [
       ["KCG GHP Audit Report"],
       ["ประเภทแบบตรวจ", auditTypeLabel(audit.meta.auditType)],
@@ -1163,12 +1163,38 @@
     }));
     const stats = getStats();
     rows.push([], ["รวม", "", "", "", stats.score, "คะแนน (%)", displayPercent(stats.percent)]);
+    return rows;
+  }
+  function exportCsv() {
+    const rows = auditExportRows();
     downloadBlob(`\ufeff${rows.map((row) => row.map(csvCell).join(",")).join("\r\n")}`, safeFilename("csv"), "text/csv;charset=utf-8");
     showToast("ดาวน์โหลด CSV แล้ว");
+  }
+  function exportExcel() {
+    const rows = auditExportRows();
+    const html = `<!doctype html><html><head><meta charset="utf-8"><style>body{font-family:Arial,"Tahoma",sans-serif}table{border-collapse:collapse;width:100%}td{border:1px solid #999;padding:6px;vertical-align:top}tr:first-child td{font-size:18px;font-weight:bold;color:#b81e18;background:#fff0ee}tr:nth-child(6) td{font-weight:bold;background:#eee}</style></head><body><table>${rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("")}</table></body></html>`;
+    downloadBlob(`\ufeff${html}`, safeFilename("xls"), "application/vnd.ms-excel;charset=utf-8");
+    showToast("ดาวน์โหลดรายงาน Excel แล้ว");
   }
   function exportJson() {
     downloadBlob(JSON.stringify({ schemaVersion: 1, exportedAt: new Date().toISOString(), audit }, null, 2), safeFilename("json"), "application/json;charset=utf-8");
     showToast("ดาวน์โหลดไฟล์สำรองแล้ว");
+  }
+  function richReportDocument() {
+    return `<!doctype html><html lang="th"><head><meta charset="utf-8"><title>KCG GHP Audit Report</title><style>
+      @page{size:A4;margin:12mm}body{margin:0;color:#202226;font:10pt Arial,"Tahoma",sans-serif;line-height:1.45}h1{margin:0;color:#b81e18;font-size:22pt}h2{margin:16px 0 7px;font-size:14pt}h3{font-size:12pt}.print-header{border-bottom:3px solid #db241c;padding-bottom:10px}.print-meta{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}.print-meta>div,.print-summary>div{padding:7px;border:1px solid #ccc}.print-meta span{color:#666}.print-summary{display:flex;gap:8px;margin:10px 0}.print-summary>div{flex:1;background:#fff0ee}.print-section{break-inside:auto}.print-table{width:100%;border-collapse:collapse}.print-table th,.print-table td{border:1px solid #aaa;padding:5px;vertical-align:top}.print-table th,.print-section>h2{background:#f6e1df}.print-findings{break-before:page}.print-finding-group>header{padding:7px;border-left:5px solid #db241c;background:#f2f2f2}.print-finding-card{break-inside:avoid;border:1px solid #aaa;padding:10px;margin-bottom:9px}.print-finding-meta{display:flex;justify-content:space-between}.print-finding-description{border-top:1px solid #ddd;margin-top:7px;padding-top:7px}.print-corrective{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;padding:8px;background:#fafafa;border:1px solid #bbb}.print-corrective .full{grid-column:1/-1}.print-photo-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.print-photo-grid figure{margin:0;border:1px solid #bbb;padding:5px}.print-photo-grid img{width:100%;height:230px;object-fit:contain}.print-photo-grid figcaption{text-align:center;color:#666;font-size:8pt}.print-photo-count{display:block;color:#b81e18;font-weight:bold}.print-checklist-heading{break-before:page;border-bottom:3px solid #db241c;padding-bottom:6px}
+    </style></head><body>${els.printReport.innerHTML}</body></html>`;
+  }
+  async function exportRichReport(format) {
+    await preparePrint();
+    const html = richReportDocument();
+    if (format === "word") {
+      downloadBlob(`\ufeff${html}`, safeFilename("doc"), "application/msword;charset=utf-8");
+      showToast("ดาวน์โหลดรายงาน Word แล้ว");
+      return;
+    }
+    downloadBlob(html, safeFilename("html"), "text/html;charset=utf-8");
+    showToast("ดาวน์โหลดรายงาน HTML แล้ว");
   }
   function prepareBlankPrint() {
     els.printReport.className = "print-report blank-print-report";
@@ -1928,8 +1954,11 @@
     els.exportDialog.addEventListener("click", async (event) => {
       const button = event.target.closest("[data-export]");
       if (!button) return;
+      if (button.dataset.export === "excel") exportExcel();
       if (button.dataset.export === "csv") exportCsv();
       if (button.dataset.export === "json") exportJson();
+      if (button.dataset.export === "word") await exportRichReport("word");
+      if (button.dataset.export === "html") await exportRichReport("html");
       if (button.dataset.export === "print") { await preparePrint(); window.print(); }
       els.exportDialog.close();
     });

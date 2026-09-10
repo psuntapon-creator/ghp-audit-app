@@ -8,10 +8,10 @@
     <title>KCG GHP Audit Report</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <script>try{document.documentElement.dataset.theme=localStorage.getItem("ghp-color-theme")||((matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light")}catch(e){document.documentElement.dataset.theme="light"}</script>
-    <link rel="stylesheet" href="styles.css?v=admin-zone-score-1" />
-    <script src="data.js?v=admin-zone-score-1" defer></script>
-    <script src="checklist-types.js?v=admin-zone-score-1" defer></script>
-    <script src="app.js?v=admin-zone-score-1" defer></script>
+    <link rel="stylesheet" href="styles.css?v=multi-report-export-1" />
+    <script src="data.js?v=multi-report-export-1" defer></script>
+    <script src="checklist-types.js?v=multi-report-export-1" defer></script>
+    <script src="app.js?v=multi-report-export-1" defer></script>
   </head>
   <body>
     <header class="topbar">
@@ -122,11 +122,14 @@
           <div><span class="eyebrow">ข้อมูลการตรวจ</span><h3>ส่งออกและจัดการ</h3></div>
           <button class="icon-button" value="cancel" aria-label="ปิด">×</button>
         </div>
-        <p>ดาวน์โหลดสำเนาสำหรับสำรองข้อมูล วิเคราะห์ต่อ หรือพิมพ์เป็นรายงาน</p>
+        <p>เลือกส่งออกรายงานสำหรับเปิดใน Excel หรือ Word วิเคราะห์ต่อ สำรองข้อมูล หรือพิมพ์เป็น PDF</p>
         <div class="export-grid">
-          <button type="button" class="export-option" data-export="csv"><b>CSV</b><span>รายการตรวจและคะแนน</span></button>
-          <button type="button" class="export-option" data-export="json"><b>JSON</b><span>สำรองข้อมูลทั้งหมด</span></button>
-          <button type="button" class="export-option" data-export="print"><b>PDF</b><span>พิมพ์หรือบันทึกเป็น PDF</span></button>
+          <button type="button" class="export-option" data-export="excel"><b>Excel (.xls)</b><span>ตารางรายการตรวจ คะแนน และการแก้ไข</span></button>
+          <button type="button" class="export-option" data-export="csv"><b>CSV</b><span>ข้อมูลตารางสำหรับวิเคราะห์ต่อ</span></button>
+          <button type="button" class="export-option" data-export="word"><b>Word (.doc)</b><span>รายงานฉบับเต็มพร้อมรูปหลักฐาน</span></button>
+          <button type="button" class="export-option" data-export="print"><b>PDF / Print</b><span>พิมพ์หรือบันทึกเป็น PDF พร้อมรูป</span></button>
+          <button type="button" class="export-option" data-export="html"><b>HTML</b><span>รายงานฉบับเต็มเปิดด้วยเว็บเบราว์เซอร์</span></button>
+          <button type="button" class="export-option" data-export="json"><b>JSON Backup</b><span>สำรองข้อมูลดิบทั้งหมดเพื่อนำกลับมาใช้</span></button>
         </div>
       </form>
     </dialog>
