@@ -326,6 +326,7 @@ button { color: inherit; }
 .recent-audit-open b, .recent-audit-open small { display: block; }
 .recent-audit-open b { font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .recent-audit-open small { color: var(--muted); font-size: 8px; margin-top: 2px; }
+.recent-audit-open .recent-auditor { color: var(--ink); font-weight: 750; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .recent-date { color: var(--muted); font-size: 8px; }
 .recent-result { text-align: right; }
 .recent-result b { color: var(--primary); font-size: 12px; }
